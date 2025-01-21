@@ -9,8 +9,11 @@ app.get('/health', (c) => c.text('OK'))
 
 githubApp(app)
 
-serve(app, () => {
-    console.log('Server is running on http://localhost:3000')
+serve({
+    port: 8080,
+    fetch: app.fetch,
+}, () => {
+    console.log('Server is running on http://localhost:8080')
 })
 
 export default app

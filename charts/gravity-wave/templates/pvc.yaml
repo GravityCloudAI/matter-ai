@@ -1,0 +1,20 @@
+{{- range $name, $config := .Values.persistence }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $config.name }}
+  namespace: {{ $.Values.global.namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
+    helm.sh/hook: pre-install
+  labels:
+    {{- include "gravity.labels" $ | nindent 4 }}
+spec:
+  accessModes:
+    - {{ $config.accessMode }}
+  resources:
+    requests:
+      storage: {{ $config.size }}
+  storageClassName: {{ $.Values.global.storageClass }}
+{{- end }}

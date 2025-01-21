@@ -1,0 +1,45 @@
+{{- range $name, $component := .Values.components }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $component.deployment.name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "gravity.labels" $ | nindent 4 }}
+    app: {{ $component.deployment.name }}
+spec:
+  replicas: {{ $component.deployment.replicas }}
+  selector:
+    matchLabels:
+      app: {{ $component.deployment.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $component.deployment.name }}
+    spec:
+      {{- if eq $name "gravityAgent" }}
+      serviceAccountName: {{ $.Values.rbac.serviceAccount.name }}
+      {{- end }}
+      {{- with $.Values.global.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: {{ $component.deployment.name }}
+        image: "{{ $component.deployment.image.repository }}:{{ $component.deployment.image.tag }}"
+        imagePullPolicy: {{ $component.deployment.image.pullPolicy }}
+        {{- if $component.deployment.command }}
+        command:
+{{ toYaml $component.deployment.command | nindent 10 }}
+        {{- end }}
+        {{- if $component.deployment.env }}
+        env:
+        {{- range $key, $value := $component.deployment.env }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+        resources:
+{{ toYaml $component.deployment.resources | nindent 10 }}
+{{- end }}

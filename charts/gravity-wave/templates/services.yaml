@@ -1,0 +1,18 @@
+{{- range $componentName, $component := .Values.components }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $component.service.name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "gravity.labels" $ | nindent 4 }}
+    app: {{ $component.deployment.name }}
+spec:
+  type: {{ $component.service.type }}
+  ports:
+    - port: {{ $component.service.port }}
+      targetPort: {{ $component.service.targetPort }}
+  selector:
+    app: {{ $component.deployment.name }}
+{{- end }}
