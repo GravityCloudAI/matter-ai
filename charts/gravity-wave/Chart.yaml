@@ -3,8 +3,8 @@ name: gravity-wave
 description: Helm chart to deploy the Gravity Cloud Wave Integration Tool
 type: application
 icon: https://gravitycloud.ai/favicon.png
-appVersion: 1.0.0
-version: 1.0.0
+appVersion: 0.1.0
+version: 0.1.0
 maintainers:
   - name: Vatsal Bajpai
     email: vatsal@gravitycloud.ai
