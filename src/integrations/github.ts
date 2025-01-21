@@ -3,6 +3,7 @@ import { Octokit } from "@octokit/rest"
 import { Webhooks } from '@octokit/webhooks';
 import { createAppAuth } from "@octokit/auth-app";
 import { query, queryWParams } from "../db/psql";
+import { syncer } from '../syncer';
 
 if (!process.env.GITHUB_WEBHOOK_SECRET) {
   throw new Error('GitHub webhook secret is not set');
@@ -486,4 +487,11 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
       await queryWParams(`INSERT INTO github_users (installation_id, users) VALUES ($1, $2)`, [installationId, users])
     }
   }
+
+  await syncer('github', {
+    repositories: await query('SELECT * FROM github_repositories'),
+    pullRequests: await query('SELECT * FROM github_pull_requests'),
+    users: await query('SELECT * FROM github_users'),
+    branches: await query('SELECT * FROM github_branches'),
+  })
 }
