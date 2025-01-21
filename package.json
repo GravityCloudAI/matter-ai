@@ -1,0 +1,40 @@
+{
+  "name": "wave",
+  "description": "Wave is open-source integration tool for Gravity Cloud",
+  "repository": "https://github.com/GravityCloudAI/wave",
+  "author": "Vatsal <vatsal@gravitycloud.ai>",
+  "license": "MIT",
+  "version": "0.1.0",
+  "scripts": {
+    "start": "node dist/index.js",
+    "build": "tsc",
+    "dev": "env-cmd -f .env nodemon --watch '*.ts' --exec node --loader ts-node/esm src/index.ts"
+  },
+  "type": "module",
+  "engines": {
+    "npm": ">=9.5.0",
+    "node": ">=18.5.0"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@octokit/auth-app": "^7.1.4",
+    "@octokit/rest": "^21.0.2",
+    "@octokit/webhooks": "^13.4.2",
+    "@octokit/webhooks-types": "^7.6.1",
+    "axios": "^1.7.4",
+    "hono": "^4.6.16",
+    "pg": "^8.13.0",
+    "redis": "^4.7.0",
+    "socket.io-client": "^4.8.0",
+    "uuid": "^10.0.0",
+    "yaml": "^2.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/pg": "^8.11.10",
+    "@types/uuid": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.3.2"
+  }
+}
