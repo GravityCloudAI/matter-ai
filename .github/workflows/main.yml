@@ -49,9 +49,9 @@ jobs:
           push: true
           tags: >-
             ${{ 
-              github.ref == 'refs/heads/main' && format('gravitycloud/gravity-wavelatest,gravitycloud/gravity-wave{0}', steps.package-version.outputs.VERSION) ||
-              github.ref == 'refs/heads/develop' && 'gravitycloud/gravity-wavedev' ||
-              format('gravitycloud/gravity-wave{0}', github.ref_name)
+              github.ref == 'refs/heads/main' && format('gravitycloud/gravity-wave:latest,gravitycloud/gravity-wave:{0}', steps.package-version.outputs.VERSION) ||
+              github.ref == 'refs/heads/develop' && 'gravitycloud/gravity-wave:dev' ||
+              format('gravitycloud/gravity-wave:{0}', github.ref_name)
             }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
