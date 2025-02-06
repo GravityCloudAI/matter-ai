@@ -9,6 +9,8 @@ if (!process.env.GITHUB_WEBHOOK_SECRET) {
   throw new Error('GitHub webhook secret is not set');
 }
 
+export const REPO_COLORS = ['green', 'orange', 'red', 'yellow', 'limegreen', 'info', 'lightblue'];
+
 const githubWebhookHandler = async (c: any) => {
   try {
     const body = await c.req.json();
@@ -205,7 +207,13 @@ const updateRepoBranches = async (installationId: number, repoName: string, full
     }
   }
 
-  await queryWParams(`INSERT INTO github_branches (installation_id, branches) VALUES ($1, $2)`, [installationId, repoBranches])
+  await queryWParams(
+    `INSERT INTO github_branches (installation_id, branches) 
+     VALUES ($1, $2)
+     ON CONFLICT (installation_id) 
+     DO UPDATE SET branches = $2`,
+    [installationId, repoBranches]
+  )
 }
 
 const removeRepoBranches = async (installationId: number, repoName: string) => {
@@ -327,9 +335,21 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
       if (updatedRepo && updatedRepo[0]) {
         const repoIndex = allRepos.findIndex((r: any) => r.name === repo.name)
         if (repoIndex === -1) {
-          allRepos.push(updatedRepo[0])
+          const existingColors = new Set(allRepos.map((r: any) => r.color));
+          const availableColors = REPO_COLORS.filter(c => !existingColors.has(c));
+          const nextColor = availableColors.length > 0 ?
+            availableColors[0] :
+            REPO_COLORS[allRepos.length % REPO_COLORS.length];
+
+          allRepos.push({
+            ...updatedRepo[0],
+            color: nextColor
+          });
         } else {
-          allRepos[repoIndex] = updatedRepo[0]
+          allRepos[repoIndex] = {
+            ...updatedRepo[0],
+            color: allRepos[repoIndex].color || REPO_COLORS[repoIndex % REPO_COLORS.length]
+          };
         }
 
         const branches = await listAllBranches(githubToken, repo.name, owner)
@@ -342,12 +362,23 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
       await removeRepoBranches(installationId, repo.name)
     }
 
-    // Update database with modified repos data
-    await queryWParams(`INSERT INTO github_repositories (installation_id, repositories) VALUES ($1, $2)`, [installationId, allRepos])
+    await queryWParams(
+      `INSERT INTO github_repositories (installation_id, repositories) 
+       VALUES ($1, $2)
+       ON CONFLICT (installation_id) 
+       DO UPDATE SET repositories = $2`,
+      [installationId, allRepos]
+    )
   } else if (eventType === 'installation') {
     // For new installations, fetch all repos and their branches
     const allRepos: any = await listRepos(githubToken, owner)
-    await queryWParams(`INSERT INTO github_repositories (installation_id, repositories) VALUES ($1, $2)`, [installationId, allRepos])
+    await queryWParams(
+      `INSERT INTO github_repositories (installation_id, repositories) 
+       VALUES ($1, $2)
+       ON CONFLICT (installation_id) 
+       DO UPDATE SET repositories = $2`,
+      [installationId, allRepos]
+    )
 
     for (const repo of allRepos) {
       const branches = await listAllBranches(githubToken, repo.name, owner)
@@ -362,16 +393,30 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
     const repo = eventPayload?.repository?.name
     const prNumber = eventPayload?.pull_request?.number
 
-    // Get existing PRs from database
     const existingData = await queryWParams(`SELECT * FROM github_pull_requests WHERE installation_id = $1`, [installationId])
     let allPullRequests = existingData?.rows[0]?.pullRequests || []
 
     if (prAction === 'opened' || prAction === 'synchronize' || prAction === 'edited' || prAction === 'reopened' || prAction === 'closed') {
-      // Fetch only the updated PR
       const updatedPR = await listPullRequests(githubToken, repo, owner, prNumber)
       if (updatedPR) {
+        const filteredFiles = updatedPR[0].changed_files.filter((file: any) => {
+          if (!file?.filename) return false;
+          
+          const skipPatterns = [
+            /package-lock\.json$/,
+            /yarn\.lock$/,
+            /pnpm-lock\.yaml$/,
+            /dist\//,
+            /build\//,
+            /\.min\.js$/,
+            /\.min\.css$/
+          ];
+          
+          return !skipPatterns.some(pattern => pattern.test(file.filename));
+        });
+        
+        updatedPR[0].changed_files = filteredFiles;
 
-        // Update or add the PR in the existing data
         const repoIndex = allPullRequests.findIndex((r: any) => r.repo === repo)
         if (repoIndex === -1) {
           allPullRequests.push({
@@ -389,8 +434,13 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
       }
     }
 
-    // Update database with modified PR data
-    await queryWParams(`INSERT INTO github_pull_requests (installation_id, pullRequests) VALUES ($1, $2)`, [installationId, allPullRequests])
+    await queryWParams(
+      `INSERT INTO github_pull_requests (installation_id, pullRequests) 
+       VALUES ($1, $2)
+       ON CONFLICT (installation_id) 
+       DO UPDATE SET "pullRequests" = $2`,
+      [installationId, allPullRequests]
+    )
   } else if (eventType === 'installation') {
     // For new installations, fetch all PRs
     const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId]))?.rows[0]?.repositories
@@ -407,7 +457,13 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
         }
       }
       // Insert all PRs at once after collecting them
-      await queryWParams(`INSERT INTO github_pull_requests (installation_id, pullRequests) VALUES ($1, $2)`, [installationId, allPullRequests])
+      await queryWParams(
+        `INSERT INTO github_pull_requests (installation_id, pullRequests) 
+         VALUES ($1, $2)
+         ON CONFLICT (installation_id) 
+         DO UPDATE SET "pullRequests" = $2`,
+        [installationId, allPullRequests]
+      )
     }
   }
 
@@ -422,56 +478,46 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
       per_page: 100
     });
 
-    // Skip detailed user info gathering if it's not an installation event
     if (!eventType || eventType === 'installation' || eventType === 'member') {
-      // Initialize maps to store user info
-      const userEmails = new Map(users.map(user => [user.login, null]));
-      const userNames = new Map(users.map(user => [user.login, null]));
-
-      // Only process repos if we need to gather user details
+      const userEmails = new Map<string, string | null>(users.map(user => [user.login, null]));
+      const userNames = new Map<string, string | null>(users.map(user => [user.login, null]));
+      
+      // Only fetch commit data if we need user details
       const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId]))?.rows[0]?.repositories
       if (allRepos) {
-        // Search through repos until we find info for all users
-        for (const repo of allRepos) {
-          // Skip if we've found all info
-          if ([...userEmails.values()].every(email => email !== null) &&
-            [...userNames.values()].every(name => name !== null)) {
-            break;
-          }
-
+        // Process repos in parallel with a limit
+        const processRepo = async (repo: any) => {
           try {
-            // Get all commits for the repo
-            const commits = await octokit.paginate(octokit.repos.listCommits, {
-              owner: owner,
-              repo: repo.name,
-              per_page: 100
-            });
+            // Only fetch commits if we still need user info
+            if ([...userEmails.values()].some(email => email === null) ||
+                [...userNames.values()].some(name => name === null)) {
+              const commits = await octokit.paginate(octokit.repos.listCommits, {
+                owner,
+                repo: repo.name,
+                per_page: 100
+              });
 
-            // Process commits to find user info
-            for (const commit of commits) {
-              const authorLogin = commit.author?.login;
-              if (authorLogin && userEmails.has(authorLogin)) {
-                // Set email if not already found
-                if (!userEmails.get(authorLogin)) {
-                  const commitEmail: any = commit.commit?.author?.email;
-                  if (commitEmail) {
-                    userEmails.set(authorLogin, commitEmail);
+              for (const commit of commits) {
+                const authorLogin = commit.author?.login;
+                if (authorLogin && userEmails.has(authorLogin)) {
+                  if (!userEmails.get(authorLogin)) {
+                    userEmails.set(authorLogin, commit.commit?.author?.email || null);
                   }
-                }
-
-                // Set name if not already found
-                if (!userNames.get(authorLogin)) {
-                  const commitName: any = commit.commit?.author?.name;
-                  if (commitName) {
-                    userNames.set(authorLogin, commitName);
+                  if (!userNames.get(authorLogin)) {
+                    userNames.set(authorLogin, commit.commit?.author?.name || null);
                   }
                 }
               }
             }
           } catch (error) {
             console.error(`Error processing repo ${repo.name}:`, error);
-            continue;
           }
+        };
+
+        // Process repos in batches of 3
+        for (let i = 0; i < allRepos.length; i += 3) {
+          const batch = allRepos.slice(i, i + 3);
+          await Promise.all(batch.map(processRepo));
         }
       }
 
@@ -481,10 +527,21 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
         name: userNames.get(user.login) || null
       }));
 
-      await queryWParams(`INSERT INTO github_users (installation_id, users) VALUES ($1, $2)`, [installationId, usersWithDetails])
+      await queryWParams(
+        `INSERT INTO github_users (installation_id, users) 
+         VALUES ($1, $2)
+         ON CONFLICT (installation_id) 
+         DO UPDATE SET users = $2`,
+        [installationId, usersWithDetails || users]
+      )
     } else {
-      // For non-installation events, just store basic user info
-      await queryWParams(`INSERT INTO github_users (installation_id, users) VALUES ($1, $2)`, [installationId, users])
+      await queryWParams(
+        `INSERT INTO github_users (installation_id, users) 
+         VALUES ($1, $2)
+         ON CONFLICT (installation_id) 
+         DO UPDATE SET users = $2`,
+        [installationId, users]
+      )
     }
   }
 
