@@ -43,6 +43,15 @@ export const init = async () => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`)
 
+    await client.query(`CREATE TABLE IF NOT EXISTS github_pull_request_analysis (
+        installation_id INT PRIMARY KEY,
+        repo VARCHAR(255),
+        pr_id INT,
+        analysis JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`)
+
     client.release()
 }
 

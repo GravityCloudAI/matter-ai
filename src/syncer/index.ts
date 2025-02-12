@@ -1,35 +1,49 @@
-// make api call to Gravity notifying the change
+import { io, Socket } from 'socket.io-client';
+import { getGithubDataFromDb } from '../integrations/github';
 
-export const syncer = async (integration: string, syncData: any) => {
-    const gravityUrl = process.env.GRAVITY_API_URL
-    const gravityToken = process.env.GRAVITY_API_KEY
+class GravitySocketManager {
+  private socket: Socket;
 
-    if (!gravityUrl || !gravityToken) {
-        console.error("Missing Gravity URL or API key")
-        return
-    }
+  constructor(gravityUrl: string) {
+    this.socket = io(gravityUrl);
+    this.setupSocketListeners();
+  }
 
-    try {
-        const response = await fetch(gravityUrl, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${gravityToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                type: 'sync_notification',
-                integration,
-                syncData
-            })
-        })
+  private setupSocketListeners() {
+    this.socket.on('connect', () => {
+      console.log('Connected to Gravity socket');
+    });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`)
+    this.socket.on('query', async (data) => {
+      try {
+        const { queryName, type } = data;
+        let result;
+
+        switch (type) {
+          case 'github':
+            result = await getGithubDataFromDb(data.installationId);
+            break;
+          default:
+            console.warn(`Unknown type: ${type}`);
+            return;
         }
 
-        const data = await response.json()
-        console.log("Successfully notified Gravity of sync:", data)
-    } catch (error) {
-        console.error("Error notifying Gravity:", error)
-    }
+        this.socket.emit('queryResult', {
+          queryName,
+          result,
+        });
+      } catch (error) {
+        console.error(`Error executing query ${data.queryName}:`, error);
+        this.socket.emit('queryError', {
+          queryName: data.queryName,
+          error: error.message,
+        });
+      }
+    });
+
+    this.socket.on('disconnect', () => {
+      console.log('Disconnected from Gravity socket');
+    });
+  }
 }
+

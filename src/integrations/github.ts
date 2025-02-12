@@ -1,9 +1,9 @@
-import { Hono } from 'hono'
-import { Octokit } from "@octokit/rest"
-import { Webhooks } from '@octokit/webhooks';
 import { createAppAuth } from "@octokit/auth-app";
+import { Octokit } from "@octokit/rest";
+import { Webhooks } from '@octokit/webhooks';
+import { Hono } from 'hono';
 import { query, queryWParams } from "../db/psql";
-import { syncer } from '../syncer';
+import { analyzePullRequest } from "../ai/pullRequestAnalysis";
 
 if (!process.env.GITHUB_WEBHOOK_SECRET) {
   throw new Error('GitHub webhook secret is not set');
@@ -58,12 +58,12 @@ webhooks.onAny(async (event: any) => {
 
 export const getGithubInstallationToken = async (installationId: number) => {
 
-  if (!process.env.GITHUB_PRIVATE_KEY) {
-    throw new Error('GitHub private key is not set in environment variables');
+  if (!process.env.GITHUB_PRIVATE_KEY || !process.env.GITHUB_APP_ID) {
+    throw new Error('GitHub private key or app ID is not set in environment variables');
   }
 
-  const appId = 474549
-  const privateKey = process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n');
+  const appId = process.env.GITHUB_APP_ID
+  const privateKey = Buffer.from(process.env.GITHUB_PRIVATE_KEY, 'base64').toString('utf8')
 
   const auth = createAppAuth({
     appId: appId,
@@ -399,24 +399,6 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
     if (prAction === 'opened' || prAction === 'synchronize' || prAction === 'edited' || prAction === 'reopened' || prAction === 'closed') {
       const updatedPR = await listPullRequests(githubToken, repo, owner, prNumber)
       if (updatedPR) {
-        const filteredFiles = updatedPR[0].changed_files.filter((file: any) => {
-          if (!file?.filename) return false;
-          
-          const skipPatterns = [
-            /package-lock\.json$/,
-            /yarn\.lock$/,
-            /pnpm-lock\.yaml$/,
-            /dist\//,
-            /build\//,
-            /\.min\.js$/,
-            /\.min\.css$/
-          ];
-          
-          return !skipPatterns.some(pattern => pattern.test(file.filename));
-        });
-        
-        updatedPR[0].changed_files = filteredFiles;
-
         const repoIndex = allPullRequests.findIndex((r: any) => r.repo === repo)
         if (repoIndex === -1) {
           allPullRequests.push({
@@ -431,6 +413,75 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
             allPullRequests[repoIndex].prs[prIndex] = updatedPR[0]
           }
         }
+
+        if (prAction === 'opened' || prAction === 'edited' || prAction === 'synchronize') {
+
+          const prForAnalysis = {
+            title: updatedPR[0].title,
+            body: updatedPR[0].body,
+            changed_files: updatedPR[0].changed_files.filter((file: any) => {
+              if (!file?.filename) return false;
+
+              const skipPatterns = [
+                /package-lock\.json$/,
+                /package\.json$/,
+                /yarn\.lock$/,
+                /pnpm-lock\.yaml$/,
+                /dist\//,
+                /build\//,
+                /\.min\.js$/,
+                /\.min\.css$/
+              ];
+
+              // Return false if the filename matches any of the skip patterns
+              return !skipPatterns.some(pattern => pattern.test(file.filename));
+            }),
+            requested_reviewers: updatedPR[0].requested_reviewers
+          };
+
+          const analysis = await analyzePullRequest(prForAnalysis)
+          if (analysis) {
+            await queryWParams(
+              `INSERT INTO github_pull_request_analysis (installation_id, repo, pr_id, analysis) 
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (installation_id, repo, pr_id) 
+               DO UPDATE SET analysis = $4`,
+              [installationId, repo, prNumber, analysis]
+            )
+          }
+
+          if (process.env.ENABLE_PR_REVIEW_COMMENT === "true") {
+            try {
+              const parsedAnalysis = JSON.parse(analysis)
+              console.log("analysis", JSON.stringify(parsedAnalysis, null, 2))
+
+              const reviewComments = parsedAnalysis?.review?.reviewComments || [];
+              const codeChangeComments = parsedAnalysis?.codeChangeGeneration?.reviewComments || [];
+
+              // Keep codeChangeComments and only add reviewComments that don't have conflicting positions
+              const mergedComments = [
+                ...codeChangeComments,
+                ...reviewComments.filter((review: any) =>
+                  !codeChangeComments.some((change: any) =>
+                    change.path === review.path && change.position === review.position
+                  )
+                )
+              ];
+
+              await addReviewToPullRequest(
+                githubToken,
+                owner,
+                repo,
+                prNumber,
+                parsedAnalysis?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
+                parsedAnalysis?.codeChangeGeneration?.reviewBody,
+                mergedComments)
+            } catch (error) {
+              console.error("Error adding review to pull request:", error)
+            }
+          }
+        }
+
       }
     }
 
@@ -481,7 +532,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
     if (!eventType || eventType === 'installation' || eventType === 'member') {
       const userEmails = new Map<string, string | null>(users.map(user => [user.login, null]));
       const userNames = new Map<string, string | null>(users.map(user => [user.login, null]));
-      
+
       // Only fetch commit data if we need user details
       const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId]))?.rows[0]?.repositories
       if (allRepos) {
@@ -490,7 +541,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
           try {
             // Only fetch commits if we still need user info
             if ([...userEmails.values()].some(email => email === null) ||
-                [...userNames.values()].some(name => name === null)) {
+              [...userNames.values()].some(name => name === null)) {
               const commits = await octokit.paginate(octokit.repos.listCommits, {
                 owner,
                 repo: repo.name,
@@ -544,11 +595,84 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
       )
     }
   }
-
-  await syncer('github', {
-    repositories: await query('SELECT * FROM github_repositories'),
-    pullRequests: await query('SELECT * FROM github_pull_requests'),
-    users: await query('SELECT * FROM github_users'),
-    branches: await query('SELECT * FROM github_branches'),
-  })
 }
+
+export const getGithubDataFromDb = async (installationId: number) => {
+  const repositories = await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId])
+  const pullRequests = await queryWParams(`SELECT * FROM github_pull_requests WHERE installation_id = $1`, [installationId])
+  const users = await queryWParams(`SELECT * FROM github_users WHERE installation_id = $1`, [installationId])
+  const branches = await queryWParams(`SELECT * FROM github_branches WHERE installation_id = $1`, [installationId])
+
+  return {
+    repositories: repositories?.rows[0]?.repositories,
+    pullRequests: pullRequests?.rows[0]?.pullRequests,
+    users: users?.rows[0]?.users,
+    branches: branches?.rows[0]?.branches,
+  }
+}
+
+const addReviewToPullRequest = async (
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
+  reviewBody?: string,
+  reviewComments?: { path: string; body: string; position: number }[]
+) => {
+  try {
+    const octokit = new Octokit({
+      auth: token,
+      userAgent: "gravitonAI v0.1",
+    });
+
+    const { data: pr } = await octokit.pulls.get({
+      owner,
+      repo,
+      pull_number: prNumber,
+    });
+
+    const { data: reviews } = await octokit.pulls.listReviews({
+      owner,
+      repo,
+      pull_number: prNumber,
+    });
+
+    const pendingReviews = reviews.filter(review => review.state === 'PENDING' && review?.user?.login === "gravity-cloud[bot]");
+
+    for (const review of pendingReviews) {
+      try {
+        await octokit.pulls.deletePendingReview({
+          owner,
+          repo,
+          pull_number: prNumber,
+          review_id: review.id
+        });
+
+      } catch (error) {
+        console.error("Error dismissing pending review:", error)
+      }
+    }
+
+    const response = await octokit.pulls.createReview({
+      owner,
+      repo,
+      pull_number: prNumber,
+      commit_id: pr.head.sha,
+      body: reviewBody,
+      comments: reviewComments?.map(comment => ({
+        path: comment.path,
+        body: comment.body,
+        line: comment.position,
+        side: 'RIGHT'
+      })),
+      event,
+    });
+
+    return response.data;
+
+  } catch (error) {
+    console.error("Error adding review to pull request:", error)
+    return null
+  }
+};
