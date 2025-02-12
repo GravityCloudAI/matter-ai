@@ -4,7 +4,7 @@
   "repository": "https://github.com/GravityCloudAI/wave",
   "author": "Vatsal <vatsal@gravitycloud.ai>",
   "license": "MIT",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "scripts": {
     "start": "node dist/index.js",
     "build": "tsc",

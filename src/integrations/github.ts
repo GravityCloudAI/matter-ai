@@ -9,6 +9,8 @@ if (!process.env.GITHUB_WEBHOOK_SECRET) {
   throw new Error('GitHub webhook secret is not set');
 }
 
+
+
 export const REPO_COLORS = ['green', 'orange', 'red', 'yellow', 'limegreen', 'info', 'lightblue'];
 
 const githubWebhookHandler = async (c: any) => {
@@ -38,7 +40,30 @@ const githubWebhookHandler = async (c: any) => {
 };
 
 export default function githubApp(app: Hono) {
-  app.post('/webhook', githubWebhookHandler);
+  app.post('/github/webhook', githubWebhookHandler);
+  app.get('/github/oauth/redirect', async (c) => {
+    try {
+      const code = c.req.query('code');
+      if (!code) {
+        return c.json({ error: 'No code provided' }, 400);
+      }
+
+      const octokit = new Octokit();
+      const response = await octokit.request('POST /login/oauth/access_token', {
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code: code,
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+
+      return c.json(response.data);
+    } catch (error) {
+      console.error('Error handling OAuth redirect:', error);
+      return c.json({ error: 'OAuth handler failed' }, 500);
+    }
+  });
 }
 
 const webhooks = new Webhooks({
@@ -46,8 +71,6 @@ const webhooks = new Webhooks({
 });
 
 webhooks.onAny(async (event: any) => {
-  console.log(event)
-
   if (event.name === "installation" && event.payload?.action === "created") {
     await queryWParams(`INSERT INTO github_data (payload) VALUES ($1)`, [event.payload])
   } else {
