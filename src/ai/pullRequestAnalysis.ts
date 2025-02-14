@@ -22,6 +22,8 @@ export const analyzePullRequest = async (prData: any) => {
         return null;
     }
 
+    console.log('Response from AI:', response);
+
     try {
         const parsedResponse = JSON.parse(response);
         return parsedResponse;

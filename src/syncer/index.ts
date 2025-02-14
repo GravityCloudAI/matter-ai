@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { getGithubDataFromDb } from '../integrations/github';
 
-class GravitySocketManager {
+export class GravitySocketManager {
   private socket: Socket;
 
   constructor(gravityUrl: string) {

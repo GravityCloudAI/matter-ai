@@ -9,8 +9,6 @@ if (!process.env.GITHUB_WEBHOOK_SECRET) {
   throw new Error('GitHub webhook secret is not set');
 }
 
-
-
 export const REPO_COLORS = ['green', 'orange', 'red', 'yellow', 'limegreen', 'info', 'lightblue'];
 
 const githubWebhookHandler = async (c: any) => {
@@ -625,12 +623,14 @@ export const getGithubDataFromDb = async (installationId: number) => {
   const pullRequests = await queryWParams(`SELECT * FROM github_pull_requests WHERE installation_id = $1`, [installationId])
   const users = await queryWParams(`SELECT * FROM github_users WHERE installation_id = $1`, [installationId])
   const branches = await queryWParams(`SELECT * FROM github_branches WHERE installation_id = $1`, [installationId])
+  const pullRequestAnalysis = await queryWParams(`SELECT * FROM github_pull_request_analysis WHERE installation_id = $1`, [installationId])
 
   return {
     repositories: repositories?.rows[0]?.repositories,
     pullRequests: pullRequests?.rows[0]?.pullRequests,
     users: users?.rows[0]?.users,
     branches: branches?.rows[0]?.branches,
+    pullRequestAnalysis: pullRequestAnalysis?.rows[0]?.pullRequestAnalysis
   }
 }
 

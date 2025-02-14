@@ -5,6 +5,7 @@ interface Prompt {
 }
 
 const GRAVITY_API_URL = process.env.GRAVITY_API_URL;
+const GRAVITY_API_KEY = process.env.GRAVITY_API_KEY;
 
 /**
  * Fetches a prompt from the Gravity API
@@ -13,7 +14,11 @@ const GRAVITY_API_URL = process.env.GRAVITY_API_URL;
  */
 export async function getPrompt(promptId: string): Promise<Prompt> {
     try {
-        const response = await fetch(`${GRAVITY_API_URL}/api/gravity/prompts/${promptId}`);
+        const response = await fetch(`${GRAVITY_API_URL}/v1/api/prompts/${promptId}`, {
+            headers: {
+                'Authorization': `Bearer ${GRAVITY_API_KEY}`
+            }
+        });
 
         if (!response.ok) {
             throw new Error(`Failed to fetch prompt: ${response.statusText}`);
@@ -23,26 +28,6 @@ export async function getPrompt(promptId: string): Promise<Prompt> {
         return prompt;
     } catch (error) {
         console.error('Error fetching prompt:', error);
-        throw error;
-    }
-}
-
-/**
- * Fetches all available prompts from the Gravity API
- * @returns Promise containing an array of prompts
- */
-export async function getAllPrompts(): Promise<Prompt[]> {
-    try {
-        const response = await fetch(`${GRAVITY_API_URL}/api/gravity/prompts`);
-
-        if (!response.ok) {
-            throw new Error(`Failed to fetch prompts: ${response.statusText}`);
-        }
-
-        const prompts = await response.json();
-        return prompts;
-    } catch (error) {
-        console.error('Error fetching prompts:', error);
         throw error;
     }
 }
