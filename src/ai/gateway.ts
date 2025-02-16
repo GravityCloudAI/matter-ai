@@ -1,3 +1,5 @@
+import * as dotenv from 'dotenv'
+dotenv.config()
 import OpenAI from 'openai';
 
 export interface AIConfig {
@@ -14,10 +16,15 @@ export interface AIPrompt {
 
 export class AIGateway {
   private client: OpenAI;
+  private config: AIConfig;
 
-  constructor(private config: AIConfig) {
+  constructor(config: AIConfig) {
+    if (!config.apiKey) {
+      throw new Error('API key is required but was not provided');
+    }
+    this.config = config;
     this.client = new OpenAI({
-      apiKey: this.config.apiKey,
+      apiKey: config.apiKey.trim(),
       baseURL: this.getBaseURL(),
     });
   }

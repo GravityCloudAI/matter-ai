@@ -1,5 +1,7 @@
+import * as dotenv from 'dotenv'
+dotenv.config()
 import { io, Socket } from 'socket.io-client';
-import { getGithubDataFromDb } from '../integrations/github';
+import { getGithubDataFromDb } from '../integrations/github.js';
 
 export class GravitySocketManager {
   private socket: Socket;
@@ -32,7 +34,7 @@ export class GravitySocketManager {
           queryName,
           result,
         });
-      } catch (error) {
+      } catch (error: any) {
         console.error(`Error executing query ${data.queryName}:`, error);
         this.socket.emit('queryError', {
           queryName: data.queryName,

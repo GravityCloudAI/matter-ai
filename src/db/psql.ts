@@ -1,8 +1,16 @@
-import { Pool } from 'pg';
+import * as dotenv from 'dotenv'
+dotenv.config()
+import pg from 'pg'
+
+const { Pool } = pg
 
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL
-});
+	host: process.env.POSTGRES_HOST,
+	database: process.env.POSTGRES_DB,
+	user: process.env.POSTGRES_USER,
+	password: process.env.POSTGRES_PASSWORD,
+	port: process.env.POSTGRES_PORT ? parseInt(process.env.POSTGRES_PORT) : 5432,
+})
 
 export const init = async () => {
     const client = await pool.connect()

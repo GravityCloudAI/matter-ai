@@ -1,9 +1,11 @@
+import * as dotenv from 'dotenv'
+dotenv.config()
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import { Webhooks } from '@octokit/webhooks';
 import { Hono } from 'hono';
-import { query, queryWParams } from "../db/psql";
-import { analyzePullRequest } from "../ai/pullRequestAnalysis";
+import { query, queryWParams } from "../db/psql.js";
+import { analyzePullRequest } from "../ai/pullRequestAnalysis.js";
 
 if (!process.env.GITHUB_WEBHOOK_SECRET) {
   throw new Error('GitHub webhook secret is not set');

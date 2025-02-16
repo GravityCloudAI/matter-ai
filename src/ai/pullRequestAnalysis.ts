@@ -1,9 +1,11 @@
-import { AIGateway } from "./gateway";
-import { getPrompt } from "./prompts";
+import { AIGateway } from "./gateway.js";
+import { getPrompt } from "./prompts.js";
+import * as dotenv from 'dotenv'
+dotenv.config()
 
 const aiGateway = new AIGateway({
-    apiKey: process.env.AI_API_KEY!,
-    model: process.env.AI_MODEL!,
+    apiKey: process.env.AI_API_KEY!!,
+    model: process.env.AI_MODEL!!,
     provider: process.env.AI_PROVIDER as 'openai' | 'anthropic' | 'gemini',
 });
 
