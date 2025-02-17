@@ -27,8 +27,31 @@ export const analyzePullRequest = async (prData: any) => {
     console.log('Response from AI:', response);
 
     try {
-        const parsedResponse = JSON.parse(response);
-        return parsedResponse;
+
+        const contentWithoutSuggestions = response.replace(
+            /"body": "```suggestion[\s\S]*?```"/g,
+            () => `"body": "CODE_BLOCK_REMOVED"`
+        );
+
+        const parsedContent = JSON.parse(contentWithoutSuggestions);
+
+        // Put the original code blocks back
+        const codeBlocks = [...response.matchAll(/"body": ("```suggestion[\s\S]*?```")/g)];
+        let codeBlockIndex = 0;
+
+        if (parsedContent?.codeChangeGeneration?.reviewComments) {
+            parsedContent.codeChangeGeneration.reviewComments.forEach((comment: any) => {
+                if (comment.body === "CODE_BLOCK_REMOVED" && codeBlockIndex < codeBlocks.length) {
+                    const cleanedCodeBlock = codeBlocks[codeBlockIndex][1].replace(/\n/g, "\\n")  // Escape newlines
+                        .replace(/\t/g, "\\t")  // Escape tabs
+                        .replace(/\r/g, "\\r")
+                    comment.body = JSON.parse(cleanedCodeBlock)
+                    codeBlockIndex++;
+                }
+            });
+        }
+
+        return parsedContent;
     } catch (error) {
         console.error('Error parsing response:', error);
         return null;
