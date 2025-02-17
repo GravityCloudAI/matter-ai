@@ -9,7 +9,7 @@ const pool = new Pool({
 	database: process.env.POSTGRES_DB,
 	user: process.env.POSTGRES_USER,
 	password: process.env.POSTGRES_PASSWORD,
-	port: process.env.POSTGRES_PORT ? parseInt(process.env.POSTGRES_PORT) : 5432,
+	port: process.env.POSTGRES_PORT ? parseInt(process.env.POSTGRES_PORT) : 5432
 })
 
 export const init = async () => {

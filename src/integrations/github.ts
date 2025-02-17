@@ -71,12 +71,15 @@ const webhooks = new Webhooks({
 });
 
 webhooks.onAny(async (event: any) => {
+  console.log("Event received", event?.name, event?.payload?.action)
   if (event.name === "installation" && event.payload?.action === "created") {
     await queryWParams(`INSERT INTO github_data (payload) VALUES ($1)`, [event.payload])
-  } else {
-    const githubData = await query(`SELECT * FROM github_data LIMIT 1`)
-    await syncUpdatedEventAndStoreInDb(event, githubData?.rows[0]?.payload)
+  } else if (event.name === "installation" && event.payload?.action === "deleted") {
+    await queryWParams(`DELETE FROM github_data WHERE installation_id = $1`, [event.payload?.installation?.id])
+    return
   }
+  const githubData = await query(`SELECT * FROM github_data LIMIT 1`)
+  await syncUpdatedEventAndStoreInDb(event, githubData?.rows[0]?.payload)
 });
 
 export const getGithubInstallationToken = async (installationId: number) => {
@@ -395,6 +398,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
   } else if (eventType === 'installation') {
     // For new installations, fetch all repos and their branches
     const allRepos: any = await listRepos(githubToken, owner)
+    console.log("allRepos", allRepos)
     await queryWParams(
       `INSERT INTO github_repositories (installation_id, repositories) 
        VALUES ($1, $2)
@@ -512,7 +516,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
       `INSERT INTO github_pull_requests (installation_id, pullRequests) 
        VALUES ($1, $2)
        ON CONFLICT (installation_id) 
-       DO UPDATE SET "pullRequests" = $2`,
+       DO UPDATE SET "pull_requests" = $2`,
       [installationId, allPullRequests]
     )
   } else if (eventType === 'installation') {

@@ -6,8 +6,18 @@ import { getGithubDataFromDb } from '../integrations/github.js';
 export class GravitySocketManager {
   private socket: Socket;
 
-  constructor(gravityUrl: string) {
-    this.socket = io(gravityUrl);
+  constructor() {
+    this.socket = io(`${process.env.GRAVITY_SOCKET_URL}?type=wave`, {
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 10000,
+      auth: {
+        gravityApiKey: process.env.GRAVITY_API_KEY
+      }
+    })
+
     this.setupSocketListeners();
   }
 
