@@ -565,7 +565,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
             await queryWParams(
               `INSERT INTO github_pull_request_analysis (installation_id, repo, pr_id, analysis) 
                VALUES ($1, $2, $3, $4::jsonb)
-               ON CONFLICT (installation_id, repo, pr_id) 
+               ON CONFLICT ON CONSTRAINT github_pull_request_analysis_pkey 
                DO UPDATE SET analysis = $4::jsonb`,
               [installationId, repo, prNumber, JSON.stringify(analysis)]
             )
@@ -573,11 +573,9 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 
           if (process.env.ENABLE_PR_REVIEW_COMMENT === "true") {
             try {
-              const parsedAnalysis = JSON.parse(analysis)
-              console.log("analysis", JSON.stringify(parsedAnalysis, null, 2))
 
-              const reviewComments = parsedAnalysis?.review?.reviewComments || [];
-              const codeChangeComments = parsedAnalysis?.codeChangeGeneration?.reviewComments || [];
+              const reviewComments = analysis?.review?.reviewComments || [];
+              const codeChangeComments = analysis?.codeChangeGeneration?.reviewComments || [];
 
               // Keep codeChangeComments and only add reviewComments that don't have conflicting positions
               const mergedComments = [
@@ -594,8 +592,8 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
                 owner,
                 repo,
                 prNumber,
-                parsedAnalysis?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
-                parsedAnalysis?.codeChangeGeneration?.reviewBody,
+                analysis?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
+                analysis?.codeChangeGeneration?.reviewBody,
                 mergedComments)
             } catch (error) {
               console.error("Error adding review to pull request:", error)
@@ -720,7 +718,11 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
   }
 }
 
-export const getGithubDataFromDb = async (installationId: number) => {
+export const getGithubDataFromDb = async () => {
+
+  const githubData = await queryWParams(`SELECT * FROM github_data limit 1`, [])
+  const installationId = githubData?.rows[0]?.installation_id
+
   const repositories = await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId])
   const pullRequests = await queryWParams(`SELECT * FROM github_pull_requests WHERE installation_id = $1`, [installationId])
   const users = await queryWParams(`SELECT * FROM github_users WHERE installation_id = $1`, [installationId])
@@ -736,7 +738,7 @@ export const getGithubDataFromDb = async (installationId: number) => {
   }
 }
 
-const addReviewToPullRequest = async (
+export const addReviewToPullRequest = async (
   token: string,
   owner: string,
   repo: string,
@@ -749,75 +751,64 @@ const addReviewToPullRequest = async (
     const octokit = new Octokit({
       auth: token,
       userAgent: "gravitonAI v0.1",
-      request: {
-        timeout: 10000 // 10 second timeout
-      }
     });
 
-    try {
-      const { data: pr } = await octokit.pulls.get({
-        owner,
-        repo,
-        pull_number: prNumber,
-      });
+    // Fetch the pull request to get the latest commit id
+    const { data: pr } = await octokit.pulls.get({
+      owner,
+      repo,
+      pull_number: prNumber,
+    });
 
-      const { data: reviews } = await octokit.pulls.listReviews({
-        owner,
-        repo,
-        pull_number: prNumber,
-      });
+    const { data: reviews } = await octokit.pulls.listReviews({
+      owner,
+      repo,
+      pull_number: prNumber,
+    });
 
-      // Delete pending reviews
-      const pendingReviews = reviews.filter(review => review.state === 'PENDING' && review?.user?.login === "gravity-cloud[bot]");
-      for (const review of pendingReviews) {
-        try {
-          await octokit.pulls.deletePendingReview({
-            owner,
-            repo,
-            pull_number: prNumber,
-            review_id: review.id
-          });
-        } catch (error: any) {
-          console.error("Error dismissing pending review:", error.message);
-          // Continue with other reviews even if one fails
-        }
+    // Find any pending reviews
+    const pendingReviews = reviews.filter(review => review.state === 'PENDING' && review?.user?.login === `${process.env.GITHUB_APP_NAME}[bot]`);
+
+    // Dismiss any pending reviews
+    for (const review of pendingReviews) {
+      try {
+        await octokit.pulls.deletePendingReview({
+          owner,
+          repo,
+          pull_number: prNumber,
+          review_id: review.id
+        });
+
+      } catch (error) {
+        console.error(`Failed to dismiss review ${review.id}:`, error);
       }
-
-      const response = await octokit.pulls.createReview({
-        owner,
-        repo,
-        pull_number: prNumber,
-        commit_id: pr.head.sha,
-        body: reviewBody,
-        comments: reviewComments?.map(comment => ({
-          path: comment.path,
-          body: comment.body,
-          line: comment.position,
-          side: 'RIGHT'
-        })),
-        event,
-      });
-
-      return response.data;
-
-    } catch (error: any) {
-      if (error.status === 404) {
-        console.error("Pull request not found:", error.message);
-        throw new Error("Pull request not found");
-      }
-      if (error.status === 403) {
-        console.error("Rate limit exceeded or insufficient permissions:", error.message);
-        throw new Error("GitHub API rate limit exceeded or insufficient permissions");
-      }
-      throw error;
     }
 
-  } catch (error: any) {
-    if (error.timeout) {
-      console.error("Request timeout while adding review");
-      throw new Error("GitHub API request timeout");
-    }
-    console.error("Error adding review to pull request:", error);
+    console.log("reviewComments", reviewComments)
+
+    // Submit review directly with all data
+    const response = await octokit.pulls.createReview({
+      owner,
+      repo,
+      pull_number: prNumber,
+      commit_id: pr.head.sha,
+      body: reviewBody,
+      comments: reviewComments?.map(comment => ({
+        path: comment.path,
+        body: comment.body,
+        line: comment.position,
+        side: 'RIGHT'
+      })),
+      event,
+    });
+
+    console.log(
+      `Review submitted to PR #${prNumber} in repo ${repo}: ${response.data.html_url}`
+    );
+    return response.data;
+
+  } catch (error) {
+    console.error('Error adding review to PR:', error);
     throw error;
   }
 };

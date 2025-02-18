@@ -48,6 +48,7 @@ export class AIGateway {
         { role: 'system', content: prompt.systemPrompt },
         { role: 'user', content: prompt.userPrompt },
       ],
+      response_format: { type: "json_object" }
     });
   }
 }

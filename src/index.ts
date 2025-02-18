@@ -4,8 +4,8 @@ dotenv.config()
 
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
-import githubApp from './integrations/github.js'
-import { GravitySocketManager } from './syncer/index.js'
+import githubApp, { addReviewToPullRequest, getGithubInstallationToken } from './integrations/github.js'
+import api from './api/index.js'
 import { init } from './db/psql.js'
 const app = new Hono()
 
@@ -18,5 +18,16 @@ serve({
     console.log('Server is running on http://localhost:8080')
     init()
     githubApp(app)
-    new GravitySocketManager();
+    api(app)
+
+    // getGithubInstallationToken(61244807).then(token => {
+    //     addReviewToPullRequest(
+    //         token,
+    //         'GravityCloudAI',
+    //         'demo-svc-repo',
+    //         5,
+    //         'COMMENT',
+    //         'This is a test comment'
+    //     )
+    // })
 })

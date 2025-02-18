@@ -5,11 +5,11 @@ import pg from 'pg'
 const { Pool } = pg
 
 const pool = new Pool({
-	host: process.env.POSTGRES_HOST,
-	database: process.env.POSTGRES_DB,
-	user: process.env.POSTGRES_USER,
-	password: process.env.POSTGRES_PASSWORD,
-	port: process.env.POSTGRES_PORT ? parseInt(process.env.POSTGRES_PORT) : 5432
+    host: process.env.POSTGRES_HOST,
+    database: process.env.POSTGRES_DB,
+    user: process.env.POSTGRES_USER,
+    password: process.env.POSTGRES_PASSWORD,
+    port: process.env.POSTGRES_PORT ? parseInt(process.env.POSTGRES_PORT) : 5432
 })
 
 export const init = async () => {
@@ -52,12 +52,11 @@ export const init = async () => {
     )`)
 
     await client.query(`CREATE TABLE IF NOT EXISTS github_pull_request_analysis (
-        installation_id INT PRIMARY KEY,
-        repo VARCHAR(255),
-        pr_id INT,
+        installation_id INTEGER,
+        repo TEXT,
+        pr_id INTEGER,
         analysis JSONB,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        PRIMARY KEY (installation_id, repo, pr_id)
     )`)
 
     client.release()
