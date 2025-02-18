@@ -17,7 +17,7 @@ export const init = async () => {
 
     // create tables if not exist
     await client.query(`CREATE TABLE IF NOT EXISTS github_data (
-        id SERIAL PRIMARY KEY,
+        installation_id INT PRIMARY KEY,
         payload JSONB,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -67,6 +67,7 @@ export const queryWParams = async (query: string, params: any[]) => {
     try {
         const client = await pool.connect()
         const result = await client.query(query, params)
+        client.release()
         return result
     } catch (error) {
         console.error(error)

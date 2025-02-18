@@ -73,9 +73,12 @@ const webhooks = new Webhooks({
 webhooks.onAny(async (event: any) => {
   console.log("Event received", event?.name, event?.payload?.action)
   if (event.name === "installation" && event.payload?.action === "created") {
-    await queryWParams(`INSERT INTO github_data (payload) VALUES ($1)`, [event.payload])
+    await queryWParams(`INSERT INTO github_data (installation_id, payload) VALUES ($1, $2::jsonb)`, [event.payload?.installation?.id, event.payload])
   } else if (event.name === "installation" && event.payload?.action === "deleted") {
     await queryWParams(`DELETE FROM github_data WHERE installation_id = $1`, [event.payload?.installation?.id])
+    await queryWParams(`DELETE FROM github_repositories WHERE installation_id = $1`, [event.payload?.installation?.id])
+    await queryWParams(`DELETE FROM github_branches WHERE installation_id = $1`, [event.payload?.installation?.id])
+    await queryWParams(`DELETE FROM github_pull_requests WHERE installation_id = $1`, [event.payload?.installation?.id])
     return
   }
   const githubData = await query(`SELECT * FROM github_data LIMIT 1`)
@@ -83,48 +86,75 @@ webhooks.onAny(async (event: any) => {
 });
 
 export const getGithubInstallationToken = async (installationId: number) => {
+  try {
+    if (!process.env.GITHUB_PRIVATE_KEY || !process.env.GITHUB_APP_ID) {
+      throw new Error('GitHub private key or app ID is not set in environment variables');
+    }
 
-  if (!process.env.GITHUB_PRIVATE_KEY || !process.env.GITHUB_APP_ID) {
-    throw new Error('GitHub private key or app ID is not set in environment variables');
+    const appId = process.env.GITHUB_APP_ID;
+    const privateKey = Buffer.from(process.env.GITHUB_PRIVATE_KEY, 'base64').toString('utf8');
+
+    const auth = createAppAuth({
+      appId: appId,
+      privateKey: privateKey,
+      installationId: installationId,
+    });
+
+    const installationAuthentication = await auth({ type: "installation" });
+    return installationAuthentication.token;
+  } catch (error: any) {
+    if (error.status === 403) {
+      console.error("Authentication failed - rate limit or permissions issue:", error.message);
+      throw new Error("GitHub authentication failed - rate limit or permissions issue");
+    }
+    if (error.status === 401) {
+      console.error("Invalid authentication credentials");
+      throw new Error("Invalid GitHub authentication credentials");
+    }
+    console.error("Error getting installation token:", error);
+    throw error;
   }
-
-  const appId = process.env.GITHUB_APP_ID
-  const privateKey = Buffer.from(process.env.GITHUB_PRIVATE_KEY, 'base64').toString('utf8')
-
-  const auth = createAppAuth({
-    appId: appId,
-    privateKey: privateKey,
-    installationId: installationId,
-  });
-
-  const installationAuthentication = await auth({ type: "installation" });
-  return installationAuthentication.token;
 }
 
 const listRepos = async (token: string, owner: string, repoName?: string) => {
   try {
     const octokit = new Octokit({
       auth: token,
-      userAgent: "wave-self-hosted-github-agent v0.1"
+      userAgent: "wave-self-hosted-github-agent v0.1",
+      request: {
+        timeout: 10000 // 10 second timeout
+      }
     });
 
     // If repo name is provided, fetch only that repo
     if (repoName) {
-      const { data: repo } = await octokit.repos.get({
-        owner,
-        repo: repoName
-      });
+      try {
+        const { data: repo } = await octokit.repos.get({
+          owner,
+          repo: repoName
+        });
 
-      const languages = await octokit.repos.listLanguages({
-        owner,
-        repo: repoName,
-      });
+        const languages = await octokit.repos.listLanguages({
+          owner,
+          repo: repoName,
+        });
 
-      return [{
-        ...repo,
-        languages: Object.keys(languages.data),
-        primaryLanguage: Object.keys(languages.data)[0] || null
-      }];
+        return [{
+          ...repo,
+          languages: Object.keys(languages.data),
+          primaryLanguage: Object.keys(languages.data)[0] || null
+        }];
+      } catch (error: any) {
+        if (error.status === 403) {
+          console.error("Rate limit exceeded for repo fetch:", error.message);
+          throw new Error("GitHub API rate limit exceeded");
+        }
+        if (error.status === 404) {
+          console.error("Repository not found:", repoName);
+          return null;
+        }
+        throw error;
+      }
     }
 
     // Initialize array to store all repos
@@ -169,9 +199,17 @@ const listRepos = async (token: string, owner: string, repoName?: string) => {
 
     return reposWithLanguages;
 
-  } catch (error) {
-    console.error("Error listing repositories:", error)
-    return null
+  } catch (error: any) {
+    if (error.status === 403) {
+      console.error("Rate limit exceeded:", error.message);
+      throw new Error("GitHub API rate limit exceeded");
+    }
+    if (error.timeout) {
+      console.error("Request timeout while fetching repositories");
+      throw new Error("GitHub API request timeout");
+    }
+    console.error("Error listing repositories:", error);
+    throw error;
   }
 }
 
@@ -235,10 +273,10 @@ const updateRepoBranches = async (installationId: number, repoName: string, full
 
   await queryWParams(
     `INSERT INTO github_branches (installation_id, branches) 
-     VALUES ($1, $2)
+     VALUES ($1, $2::jsonb)
      ON CONFLICT (installation_id) 
-     DO UPDATE SET branches = $2`,
-    [installationId, repoBranches]
+     DO UPDATE SET branches = $2::jsonb`,
+    [installationId, JSON.stringify(repoBranches)]
   )
 }
 
@@ -255,35 +293,54 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
   try {
     const octokit = new Octokit({
       auth: token,
-      userAgent: "wave-self-hosted-github-agent v0.1"
+      userAgent: "wave-self-hosted-github-agent v0.1",
+      request: {
+        timeout: 10000 // 10 second timeout
+      }
     });
 
     // If PR number is provided, fetch only that PR
     if (prNumber) {
-      const { data: pr } = await octokit.pulls.get({
-        owner,
-        repo,
-        pull_number: prNumber
-      });
+      try {
+        const { data: pr } = await octokit.pulls.get({
+          owner,
+          repo,
+          pull_number: prNumber
+        });
 
-      const { data: files } = await octokit.pulls.listFiles({
-        owner,
-        repo,
-        pull_number: prNumber,
-        per_page: 100
-      });
+        const { data: files } = await octokit.pulls.listFiles({
+          owner,
+          repo,
+          pull_number: prNumber,
+          per_page: 100
+        });
 
-      return [{
-        ...pr,
-        changed_files: files.map(file => ({
-          filename: file.filename,
-          status: file.status,
-          additions: file.additions,
-          deletions: file.deletions,
-          changes: file.changes,
-          patch: file.patch
-        }))
-      }];
+        return [{
+          ...pr,
+          changed_files: files.map(file => ({
+            filename: file.filename,
+            status: file.status,
+            additions: file.additions,
+            deletions: file.deletions,
+            changes: file.changes,
+            patch: file.patch
+          }))
+        }];
+      } catch (error: any) {
+        if (error.status === 403) {
+          console.error("Rate limit exceeded for PR fetch:", error.message);
+          throw new Error("GitHub API rate limit exceeded");
+        }
+        if (error.status === 404) {
+          console.error("Pull request not found:", prNumber);
+          return null;
+        }
+        if (error.timeout) {
+          console.error("Request timeout while fetching PR details");
+          throw new Error("GitHub API request timeout");
+        }
+        throw error;
+      }
     }
 
     // Initialize an array to store all PRs
@@ -291,51 +348,89 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
     let page = 1;
 
     while (true) {
-      const response = await octokit.pulls.list({
-        owner,
-        repo,
-        state: 'all',
-        per_page: 100, // Max allowed per page
-        page: page
-      });
+      try {
+        const response = await octokit.pulls.list({
+          owner,
+          repo,
+          state: 'all',
+          per_page: 100,
+          page: page
+        });
 
-      // If no more PRs, break the loop
-      if (response.data.length === 0) break;
-
-      // Add this page's PRs to our array
-      allPullRequests = [...allPullRequests, ...response.data];
-
-      // If we got fewer PRs than requested, we've hit the end
-      if (response.data.length < 100) break;
-
-      page++;
+        if (response.data.length === 0) break;
+        allPullRequests = [...allPullRequests, ...response.data];
+        if (response.data.length < 100) break;
+        page++;
+      } catch (error: any) {
+        if (error.status === 403) {
+          console.error("Rate limit exceeded while listing PRs:", error.message);
+          throw new Error("GitHub API rate limit exceeded");
+        }
+        if (error.timeout) {
+          console.error("Request timeout while listing PRs");
+          throw new Error("GitHub API request timeout");
+        }
+        throw error;
+      }
     }
 
-    const pullRequestsWithFiles = await Promise.all(allPullRequests.map(async (pr: any) => {
-      // Get files changed in the PR
-      const { data: files } = await octokit.pulls.listFiles({
-        owner,
-        repo,
-        pull_number: pr.number,
-        per_page: 100
-      });
+    const pullRequestsWithFiles = await Promise.all(
+      allPullRequests.map(async (pr: any) => {
+        try {
+          const { data: files } = await octokit.pulls.listFiles({
+            owner,
+            repo,
+            pull_number: pr.number,
+            per_page: 100
+          });
 
-      return {
-        ...pr,
-        changed_files: files.map(file => ({
-          filename: file.filename,
-          status: file.status, // added, modified, removed
-          additions: file.additions,
-          deletions: file.deletions,
-          changes: file.changes,
-          patch: file.patch // The actual code diff
-        }))
-      };
-    }));
+          return {
+            ...pr,
+            changed_files: files.map(file => ({
+              filename: file.filename,
+              status: file.status,
+              additions: file.additions,
+              deletions: file.deletions,
+              changes: file.changes,
+              patch: file.patch
+            }))
+          };
+        } catch (error: any) {
+          if (error.status === 403) {
+            console.error(`Rate limit exceeded while fetching files for PR #${pr.number}:`, error.message);
+            // Return PR without files rather than failing completely
+            return {
+              ...pr,
+              changed_files: []
+            };
+          }
+          if (error.timeout) {
+            console.error(`Request timeout while fetching files for PR #${pr.number}`);
+            return {
+              ...pr,
+              changed_files: []
+            };
+          }
+          console.error(`Error fetching files for PR #${pr.number}:`, error);
+          return {
+            ...pr,
+            changed_files: []
+          };
+        }
+      })
+    );
 
     return pullRequestsWithFiles;
 
-  } catch (error) {
+  } catch (error: any) {
+    if (error.status === 403) {
+      console.error("Rate limit exceeded:", error.message);
+      throw new Error("GitHub API rate limit exceeded");
+    }
+    if (error.timeout) {
+      console.error("Request timeout while fetching pull requests");
+      throw new Error("GitHub API request timeout");
+    }
     console.error("Error listing pull requests:", error);
     return null;
   }
@@ -343,7 +438,7 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
 
 const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 
-  const installationId = githubPayload?.installation?.id
+  const installationId: number = githubPayload?.installation?.id
   const githubToken = await getGithubInstallationToken(installationId)
   const owner = githubPayload?.installation?.account?.login
   const eventType = event?.name
@@ -390,21 +485,20 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 
     await queryWParams(
       `INSERT INTO github_repositories (installation_id, repositories) 
-       VALUES ($1, $2)
+       VALUES ($1, $2::jsonb)
        ON CONFLICT (installation_id) 
-       DO UPDATE SET repositories = $2`,
-      [installationId, allRepos]
+       DO UPDATE SET repositories = $2::jsonb`,
+      [installationId, JSON.stringify(allRepos)]
     )
   } else if (eventType === 'installation') {
     // For new installations, fetch all repos and their branches
     const allRepos: any = await listRepos(githubToken, owner)
-    console.log("allRepos", allRepos)
     await queryWParams(
       `INSERT INTO github_repositories (installation_id, repositories) 
-       VALUES ($1, $2)
+       VALUES ($1, $2::jsonb)
        ON CONFLICT (installation_id) 
-       DO UPDATE SET repositories = $2`,
-      [installationId, allRepos]
+       DO UPDATE SET repositories = $2::jsonb`,
+      [installationId, JSON.stringify(allRepos)]
     )
 
     for (const repo of allRepos) {
@@ -470,10 +564,10 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
           if (analysis) {
             await queryWParams(
               `INSERT INTO github_pull_request_analysis (installation_id, repo, pr_id, analysis) 
-               VALUES ($1, $2, $3, $4)
+               VALUES ($1, $2, $3, $4::jsonb)
                ON CONFLICT (installation_id, repo, pr_id) 
-               DO UPDATE SET analysis = $4`,
-              [installationId, repo, prNumber, analysis]
+               DO UPDATE SET analysis = $4::jsonb`,
+              [installationId, repo, prNumber, JSON.stringify(analysis)]
             )
           }
 
@@ -513,15 +607,17 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
     }
 
     await queryWParams(
-      `INSERT INTO github_pull_requests (installation_id, pullRequests) 
-       VALUES ($1, $2)
+      `INSERT INTO github_pull_requests (installation_id, pull_requests) 
+       VALUES ($1, $2::jsonb)
        ON CONFLICT (installation_id) 
-       DO UPDATE SET "pull_requests" = $2`,
-      [installationId, allPullRequests]
+       DO UPDATE SET pull_requests = $2::jsonb`,
+      [installationId, JSON.stringify(allPullRequests)]
     )
   } else if (eventType === 'installation') {
+    // wait fpr 10s
+    await new Promise(resolve => setTimeout(resolve, 10000));
     // For new installations, fetch all PRs
-    const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId]))?.rows[0]?.repositories
+    const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1::integer limit 1`, [installationId]))?.rows[0]?.repositories
     if (allRepos) {
       let allPullRequests: any[] = [];
       // fetch all PRs for all repos
@@ -536,11 +632,11 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
       }
       // Insert all PRs at once after collecting them
       await queryWParams(
-        `INSERT INTO github_pull_requests (installation_id, pullRequests) 
-         VALUES ($1, $2)
+        `INSERT INTO github_pull_requests (installation_id, pull_requests) 
+         VALUES ($1, $2::jsonb)
          ON CONFLICT (installation_id) 
-         DO UPDATE SET "pullRequests" = $2`,
-        [installationId, allPullRequests]
+         DO UPDATE SET pull_requests = $2::jsonb`,
+        [installationId, JSON.stringify(allPullRequests)]
       )
     }
   }
@@ -607,18 +703,18 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 
       await queryWParams(
         `INSERT INTO github_users (installation_id, users) 
-         VALUES ($1, $2)
+         VALUES ($1, $2::jsonb)
          ON CONFLICT (installation_id) 
-         DO UPDATE SET users = $2`,
-        [installationId, usersWithDetails || users]
+         DO UPDATE SET users = $2::jsonb`,
+        [installationId, JSON.stringify(usersWithDetails || users)]
       )
     } else {
       await queryWParams(
         `INSERT INTO github_users (installation_id, users) 
-         VALUES ($1, $2)
+         VALUES ($1, $2::jsonb)
          ON CONFLICT (installation_id) 
          DO UPDATE SET users = $2`,
-        [installationId, users]
+        [installationId, JSON.stringify(users)]
       )
     }
   }
@@ -653,55 +749,75 @@ const addReviewToPullRequest = async (
     const octokit = new Octokit({
       auth: token,
       userAgent: "gravitonAI v0.1",
-    });
-
-    const { data: pr } = await octokit.pulls.get({
-      owner,
-      repo,
-      pull_number: prNumber,
-    });
-
-    const { data: reviews } = await octokit.pulls.listReviews({
-      owner,
-      repo,
-      pull_number: prNumber,
-    });
-
-    const pendingReviews = reviews.filter(review => review.state === 'PENDING' && review?.user?.login === "gravity-cloud[bot]");
-
-    for (const review of pendingReviews) {
-      try {
-        await octokit.pulls.deletePendingReview({
-          owner,
-          repo,
-          pull_number: prNumber,
-          review_id: review.id
-        });
-
-      } catch (error) {
-        console.error("Error dismissing pending review:", error)
+      request: {
+        timeout: 10000 // 10 second timeout
       }
+    });
+
+    try {
+      const { data: pr } = await octokit.pulls.get({
+        owner,
+        repo,
+        pull_number: prNumber,
+      });
+
+      const { data: reviews } = await octokit.pulls.listReviews({
+        owner,
+        repo,
+        pull_number: prNumber,
+      });
+
+      // Delete pending reviews
+      const pendingReviews = reviews.filter(review => review.state === 'PENDING' && review?.user?.login === "gravity-cloud[bot]");
+      for (const review of pendingReviews) {
+        try {
+          await octokit.pulls.deletePendingReview({
+            owner,
+            repo,
+            pull_number: prNumber,
+            review_id: review.id
+          });
+        } catch (error: any) {
+          console.error("Error dismissing pending review:", error.message);
+          // Continue with other reviews even if one fails
+        }
+      }
+
+      const response = await octokit.pulls.createReview({
+        owner,
+        repo,
+        pull_number: prNumber,
+        commit_id: pr.head.sha,
+        body: reviewBody,
+        comments: reviewComments?.map(comment => ({
+          path: comment.path,
+          body: comment.body,
+          line: comment.position,
+          side: 'RIGHT'
+        })),
+        event,
+      });
+
+      return response.data;
+
+    } catch (error: any) {
+      if (error.status === 404) {
+        console.error("Pull request not found:", error.message);
+        throw new Error("Pull request not found");
+      }
+      if (error.status === 403) {
+        console.error("Rate limit exceeded or insufficient permissions:", error.message);
+        throw new Error("GitHub API rate limit exceeded or insufficient permissions");
+      }
+      throw error;
     }
 
-    const response = await octokit.pulls.createReview({
-      owner,
-      repo,
-      pull_number: prNumber,
-      commit_id: pr.head.sha,
-      body: reviewBody,
-      comments: reviewComments?.map(comment => ({
-        path: comment.path,
-        body: comment.body,
-        line: comment.position,
-        side: 'RIGHT'
-      })),
-      event,
-    });
-
-    return response.data;
-
-  } catch (error) {
-    console.error("Error adding review to pull request:", error)
-    return null
+  } catch (error: any) {
+    if (error.timeout) {
+      console.error("Request timeout while adding review");
+      throw new Error("GitHub API request timeout");
+    }
+    console.error("Error adding review to pull request:", error);
+    throw error;
   }
 };
