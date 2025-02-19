@@ -120,7 +120,7 @@ const listRepos = async (token: string, owner: string, repoName?: string) => {
   try {
     const octokit = new Octokit({
       auth: token,
-      userAgent: "wave-self-hosted-github-agent v0.1",
+      userAgent: "matter-self-hosted-github-agent v0.1",
       request: {
         timeout: 10000 // 10 second timeout
       }
@@ -217,7 +217,7 @@ const listAllBranches = async (token: string, repo: string, owner: string) => {
   try {
     const octokit = new Octokit({
       auth: token,
-      userAgent: "wave-self-hosted-github-agent v0.1"
+      userAgent: "matter-self-hosted-github-agent v0.1"
     })
 
     let allBranches: any[] = [];
@@ -293,7 +293,7 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
   try {
     const octokit = new Octokit({
       auth: token,
-      userAgent: "wave-self-hosted-github-agent v0.1",
+      userAgent: "matter-self-hosted-github-agent v0.1",
       request: {
         timeout: 10000 // 10 second timeout
       }
@@ -642,7 +642,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
   if (!eventType || eventType === 'installation' || eventType === 'member' || eventType === 'organization') {
     const octokit = new Octokit({
       auth: githubToken,
-      userAgent: "wave-self-hosted-github-agent v0.1"
+      userAgent: "matter-self-hosted-github-agent v0.1"
     });
 
     const users = await octokit.paginate(octokit.orgs.listMembers, {

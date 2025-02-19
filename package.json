@@ -1,7 +1,7 @@
 {
-  "name": "wave",
-  "description": "Wave is open-source integration tool for Gravity Cloud",
-  "repository": "https://github.com/GravityCloudAI/wave",
+  "name": "matter",
+  "description": "Matter is open-source AI Code Reviewer Agent",
+  "repository": "https://github.com/GravityCloudAI/matter",
   "author": "Vatsal <vatsal@gravitycloud.ai>",
   "license": "MIT",
   "version": "0.1.3",
