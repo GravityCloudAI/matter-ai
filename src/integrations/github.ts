@@ -436,6 +436,36 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
   }
 }
 
+const getPullRequestTemplate = async (token: string, repo: string, owner: string): Promise<string | null> => {
+  const octokit = new Octokit({
+    auth: token,
+    userAgent: "matter-self-hosted-github-agent v0.1",
+    request: {
+      timeout: 10000
+    }
+  })
+
+  try {
+    const { data } = await octokit.repos.getContent({
+      owner,
+      repo,
+      path: '.github/pull_request_template.md'
+    });
+
+    if ('content' in data) {
+      return Buffer.from(data.content, 'base64').toString();
+    }
+    return null;
+  } catch (error: any) {
+    if (error.status === 404) {
+      // Template doesn't exist, which is fine
+      return null;
+    }
+    console.error("Error fetching PR template:", error);
+    return null;
+  }
+}
+
 const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 
   const installationId: number = githubPayload?.installation?.id
@@ -560,7 +590,13 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
             requested_reviewers: updatedPR[0].requested_reviewers
           };
 
-          const analysis = await analyzePullRequest(prForAnalysis)
+          // check the ./github/pull_request_template.md from the repo branch
+          const pullRequestTemplate = await getPullRequestTemplate(githubToken, repo, owner)
+
+          const analysis = await analyzePullRequest(installationId, repo, prNumber, prForAnalysis, {
+            documentVector: null,
+            pullRequestTemplate: pullRequestTemplate
+          })
           if (analysis) {
             await queryWParams(
               `INSERT INTO github_pull_request_analysis (installation_id, repo, pr_id, analysis) 
@@ -783,8 +819,6 @@ export const addReviewToPullRequest = async (
         console.error(`Failed to dismiss review ${review.id}:`, error);
       }
     }
-
-    console.log("reviewComments", reviewComments)
 
     // Submit review directly with all data
     const response = await octokit.pulls.createReview({

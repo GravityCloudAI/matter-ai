@@ -59,6 +59,16 @@ export const init = async () => {
         PRIMARY KEY (installation_id, repo, pr_id)
     )`)
 
+    await client.query(`CREATE TABLE IF NOT EXISTS llm_logs (
+        id SERIAL PRIMARY KEY,
+        installation_id INTEGER,
+        repo TEXT,
+        pr_id INTEGER,
+        request JSONB,
+        response JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`)
+
     client.release()
 }
 

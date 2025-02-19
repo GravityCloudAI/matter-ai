@@ -1,6 +1,7 @@
 import * as dotenv from 'dotenv'
 dotenv.config()
 import OpenAI from 'openai';
+import { query } from '../db/psql.js';
 
 export interface AIConfig {
   endpoint?: string;
@@ -51,4 +52,9 @@ export class AIGateway {
       response_format: { type: "json_object" }
     });
   }
+}
+
+export const getLogsFromDb = async () => {
+  const logs = await query(`SELECT * FROM llm_logs ORDER BY created_at DESC`)
+  return logs?.rows
 }
