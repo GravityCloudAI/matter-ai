@@ -545,7 +545,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
     const prNumber = eventPayload?.pull_request?.number
 
     const existingData = await queryWParams(`SELECT * FROM github_pull_requests WHERE installation_id = $1`, [installationId])
-    let allPullRequests = existingData?.rows[0]?.pullRequests || []
+    let allPullRequests = existingData?.rows[0]?.pull_requests || []
 
     if (prAction === 'opened' || prAction === 'synchronize' || prAction === 'edited' || prAction === 'reopened' || prAction === 'closed') {
       const updatedPR = await listPullRequests(githubToken, repo, owner, prNumber)
@@ -755,22 +755,155 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 }
 
 export const getGithubDataFromDb = async () => {
+  try {
+    const githubData = await queryWParams(`SELECT * FROM github_data limit 1`, [])
+    const installationId = githubData?.rows[0]?.installation_id
 
-  const githubData = await queryWParams(`SELECT * FROM github_data limit 1`, [])
-  const installationId = githubData?.rows[0]?.installation_id
+    const repositories = await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId])
+    const pullRequests = await queryWParams(`SELECT * FROM github_pull_requests WHERE installation_id = $1`, [installationId])
+    const users = await queryWParams(`SELECT * FROM github_users WHERE installation_id = $1`, [installationId])
+    const branches = await queryWParams(`SELECT * FROM github_branches WHERE installation_id = $1`, [installationId])
+    const pullRequestAnalysis = await queryWParams(`SELECT * FROM github_pull_request_analysis WHERE installation_id = $1`, [installationId])
 
-  const repositories = await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId])
-  const pullRequests = await queryWParams(`SELECT * FROM github_pull_requests WHERE installation_id = $1`, [installationId])
-  const users = await queryWParams(`SELECT * FROM github_users WHERE installation_id = $1`, [installationId])
-  const branches = await queryWParams(`SELECT * FROM github_branches WHERE installation_id = $1`, [installationId])
-  const pullRequestAnalysis = await queryWParams(`SELECT * FROM github_pull_request_analysis WHERE installation_id = $1`, [installationId])
+    const responseData = {
+      repositories: repositories?.rows[0]?.repositories ? repositories?.rows[0]?.repositories?.map((repo: any) => {
 
-  return {
-    repositories: repositories?.rows[0]?.repositories,
-    pullRequests: pullRequests?.rows[0]?.pullRequests,
-    users: users?.rows[0]?.users,
-    branches: branches?.rows[0]?.branches,
-    pullRequestAnalysis: pullRequestAnalysis?.rows[0]?.pullRequestAnalysis
+        // clean owner data
+        delete repo.owner.followers_url;
+        delete repo.owner.following_url;
+        delete repo.owner.gists_url;
+        delete repo.owner.starred_url;
+        delete repo.owner.subscriptions_url;
+        delete repo.owner.organizations_url;
+        delete repo.owner.repos_url;
+        delete repo.owner.events_url;
+        delete repo.owner.received_events_url;
+        delete repo.owner.url;
+
+        // clean links
+        // clean links
+        delete repo.svn_url
+        delete repo.ssh_url
+        delete repo.clone_url
+        delete repo.git_url
+        delete repo.mirror_url
+        delete repo.hooks_url
+        delete repo.issue_events_url
+        delete repo.events_url
+        delete repo.assignees_url
+        delete repo.branches_url
+        delete repo.tags_url
+        delete repo.blobs_url
+        delete repo.git_refs_url
+        delete repo.trees_url
+        delete repo.statuses_url
+        delete repo.languages_url
+        delete repo.stargazers_url
+        delete repo.contributors_url
+        delete repo.subscribers_url
+        delete repo.subscription_url
+
+        // Add these additional URL deletions
+        delete repo.forks_url
+        delete repo.keys_url
+        delete repo.collaborators_url
+        delete repo.teams_url
+        delete repo.git_tags_url
+        delete repo.commits_url
+        delete repo.git_commits_url
+        delete repo.comments_url
+        delete repo.issue_comment_url
+        delete repo.contents_url
+        delete repo.compare_url
+        delete repo.merges_url
+        delete repo.archive_url
+        delete repo.downloads_url
+        delete repo.issues_url
+        delete repo.pulls_url
+        delete repo.milestones_url
+        delete repo.notifications_url
+        delete repo.labels_url
+        delete repo.releases_url
+        delete repo.deployments_url
+
+        delete repo.permissions
+
+        if (!repo.color) {
+          const existingColors = new Set(repositories?.rows[0]?.repositories.map((r: any) => r.color));
+          const availableColors = REPO_COLORS.filter(c => !existingColors.has(c));
+          const nextColor = availableColors.length > 0 ?
+            availableColors[0] :
+            REPO_COLORS[repositories?.rows[0]?.repositories.length % REPO_COLORS.length];
+          repo.color = nextColor
+        }
+
+        return repo
+      }) : [],
+      repoBranches: branches?.rows[0]?.branches ? branches?.rows[0]?.branches : [],
+      pullRequests: pullRequests?.rows[0]?.pull_requests ? await Promise.all(pullRequests?.rows[0]?.pull_requests?.map(async (prData: any) => {
+        return {
+          repo: prData.repo,
+          prs: await Promise.all(prData.prs?.map(async (pr: any) => {
+
+            const analysis = pullRequestAnalysis?.rows?.find((analysis: any) => analysis.pr_id === pr.number)
+
+            // clean user data
+            delete pr.user.followers_url;
+            delete pr.user.following_url;
+            delete pr.user.gists_url;
+            delete pr.user.starred_url;
+            delete pr.user.subscriptions_url;
+            delete pr.user.organizations_url;
+            delete pr.user.repos_url;
+            delete pr.user.events_url;
+            delete pr.user.received_events_url;
+            delete pr.user.url;
+
+            delete pr.diff_url
+            delete pr.commits_url
+            delete pr.patch_url
+            delete pr.url
+            delete pr.statuses_url
+
+            delete pr.commits_url
+            delete pr.review_comments_url
+            delete pr.review_comment_url
+            delete pr.comments_url
+
+            //clean head, base and links
+            const head = pr.head
+            delete pr.head
+            delete pr.base;
+            delete pr._links;
+
+            pr.head = { repo: { name: head?.repo?.name }, ref: head?.ref }
+
+            return {
+              ...pr,
+              checks: analysis
+            }
+          }))
+        }
+      })) : [],
+      users: users?.rows[0]?.users ? users?.rows[0]?.users?.map((user: any) => {
+        delete user.followers_url;
+        delete user.following_url;
+        delete user.gists_url;
+        delete user.starred_url;
+        delete user.subscriptions_url;
+        delete user.organizations_url;
+        delete user.repos_url;
+        delete user.events_url;
+        delete user.received_events_url;
+        delete user.url;
+        return user
+      }) : [],
+    }
+
+    return responseData
+  } catch (error) {
+    console.error('Error getting github data from db:', error);
+    throw error;
   }
 }
 
@@ -846,3 +979,37 @@ export const addReviewToPullRequest = async (
     throw error;
   }
 };
+
+export const forceReSync = async (resource: 'repositories' | 'pullRequests' | 'users' | 'branches') => {
+  const installation = await queryWParams(`SELECT * FROM github_data limit 1`, [])
+  const installationId = installation?.rows[0]?.installation_id
+  const owner = installation?.rows[0]?.payload?.installation?.account?.login
+
+  const githubToken = await getGithubInstallationToken(installationId)
+
+  if (resource === 'pullRequests') {
+    const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1::integer limit 1`, [installationId]))?.rows[0]?.repositories
+    if (allRepos) {
+      let allPullRequests: any[] = [];
+      // fetch all PRs for all repos
+      for (const repo of allRepos) {
+        const prs = await listPullRequests(githubToken, repo.name, owner)
+        if (prs) {
+          allPullRequests.push({
+            repo: repo.name,
+            prs: prs
+          });
+        }
+      }
+      // Insert all PRs at once after collecting them
+      await queryWParams(
+        `INSERT INTO github_pull_requests (installation_id, pull_requests) 
+         VALUES ($1, $2::jsonb)
+         ON CONFLICT (installation_id) 
+         DO UPDATE SET pull_requests = $2::jsonb`,
+        [installationId, JSON.stringify(allPullRequests)]
+      )
+    }
+  }
+}
+

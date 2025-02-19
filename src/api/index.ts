@@ -19,7 +19,7 @@ const authMiddleware = async (c: any, next: any) => {
 }
 
 export default function api(app: Hono) {
-  app.get('/getData', authMiddleware, async (c) => {
+  app.get('/getData', async (c) => {
     try {
       const res = c.req.query('res')
 

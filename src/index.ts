@@ -6,7 +6,7 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import api from './api/index.js'
 import { init } from './db/psql.js'
-import githubApp from './integrations/github.js'
+import githubApp, { forceReSync } from './integrations/github.js'
 const app = new Hono()
 
 app.get('/health', (c) => c.text('OK'))
