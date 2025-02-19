@@ -12,43 +12,6 @@ RUN apt-get update \
     python3-pip python3-dev unzip \
     iptables
 
-# Install AWS CLI v2
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then \
-        ARCH="amd64"; \
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
-    elif [ "$ARCH" = "aarch64" ]; then \
-        ARCH="arm64"; \
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
-    else \
-        echo "Unsupported architecture: $ARCH"; exit 1; \
-    fi && \
-    unzip awscliv2.zip && \
-    ./aws/install && \
-    rm -rf awscliv2.zip aws
-
-# Set AWS CLI pager to empty
-RUN aws configure set cli_pager ""
-
-# install kubectl
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then \
-        ARCH="amd64"; \
-    elif [ "$ARCH" = "aarch64" ]; then \
-        ARCH="arm64"; \
-    else \
-        echo "Unsupported architecture: $ARCH"; exit 1; \
-    fi && \
-    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$ARCH/kubectl" && \
-    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-
-# Install Helm
-RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
-    && chmod 700 get_helm.sh \
-    && ./get_helm.sh
-
-RUN helm version --short
-
 # Create the working directory
 WORKDIR /usr/src/app
 
