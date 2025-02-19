@@ -4,6 +4,23 @@
 
 Matter is open-source AI Code Reviewer Agent. This enables developers to review code changes and provide feedback on the code.
 
+### Supported Platforms
+[X] Github
+[] Gitlab
+[] Bitbucket
+[] Azure DevOps
+
+### Features
+
+| Feature | Status | Pricing |
+|---------|--------|---------|
+| AI Pull Request Summary | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
+| AI Code Review Comments | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
+| AI Code Suggestions | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
+| AI Code quality score and Suggestions | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
+| AI Pull Request Checklist and Suggestions | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
+| Internal Documentation Support | ✅ | <kbd>Paid</kbd> / <kbd>Enterprise</kbd> |
+
 ## Installation
 
 ### Kubernetes
@@ -17,3 +34,14 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 2. `helm repo update`
 3. `helm upgrade --install matter-ai gravity/gravity-matter -f matter-values.yaml -n matter-ai --create-namespace`
 
+### Local Installation
+
+#### Prerequisites
+1. Node.js
+2. Update .env file with the required values. You can get the template here: [https://github.com/GravityCloudAI/matter/blob/main/.env.example](https://github.com/GravityCloudAI/matter/blob/main/.env.example)
+
+#### Installation
+1. `npm install`
+2. `npm run dev`
+3. Tunnel the local server to the cloud using [ngrok](https://ngrok.com/)
+4. Update the webhook url in the Github App settings with the ngrok url
