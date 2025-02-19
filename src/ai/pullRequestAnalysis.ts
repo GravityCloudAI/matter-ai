@@ -92,3 +92,101 @@ export const analyzePullRequest = async (installationId: number, repo: string, p
     }
 };
 
+/** 
+ * Below is the static analysis for the old Pull Requests
+ */
+
+interface PRQualityResult {
+    score: number;
+    recommendations: string[];
+}
+
+interface PRChecklistResult {
+    score: number;
+    recommendations: string[];
+}
+
+interface PRAnalysisResult {
+    quality: PRQualityResult;
+    checklist: PRChecklistResult;
+}
+
+interface PullRequestData {
+    title: string;
+    body: string;
+    reviewers: string[];
+    changedFiles: Array<{
+        filename: string;
+        additions: number;
+        deletions: number;
+        changes: number;
+        status: string;
+    }>;
+}
+
+export function analyzePullRequestStatic(prData: PullRequestData): PRAnalysisResult {
+    // Analyze PR quality
+    const quality: PRQualityResult = analyzePRQualityStatic(prData);
+
+    // Check PR requirements
+    const checklist: PRChecklistResult = validatePRChecklistStatic(prData);
+
+    return {
+        quality,
+        checklist,
+    };
+}
+
+function analyzePRQualityStatic(prData: PullRequestData): PRQualityResult {
+    let score = 100;
+    const recommendations: string[] = [];
+
+    const totalLinesChanged = prData?.changedFiles?.reduce((total: number, file) => {
+        return total + file?.additions + file?.deletions;
+    }, 0);
+
+    // Evaluate based on lines changed
+    if (totalLinesChanged > 100) {
+        score -= 10;
+        recommendations.push('Consider breaking down the PR into smaller chunks');
+    }
+
+    // Evaluate based on files changed
+    if (prData?.changedFiles?.length > 3) {
+        score -= 10;
+        recommendations.push('Large number of files changed - consider splitting the changes');
+    }
+
+    return {
+        score,
+        recommendations,
+    };
+}
+
+function validatePRChecklistStatic(prData: PullRequestData): PRChecklistResult {
+    let score = 3; // Start with max score of 3 instead of 4
+    const recommendations: string[] = [];
+
+    // Check title
+    if (!prData?.title || prData.title.length === 0) {
+        score--;
+        recommendations.push('Add a title to the pull request');
+    }
+
+    // Check description/body
+    if (!prData?.body || prData.body.length === 0) {
+        score--;
+        recommendations.push('Add a body to the pull request to provide context, this will increase collaboration and code review effectiveness');
+    }
+
+    // Check reviewers
+    if (!prData?.reviewers || prData.reviewers.length === 0) {
+        score--;
+        recommendations.push('Assign at least one reviewer to the pull request');
+    }
+
+    return {
+        score,
+        recommendations,
+    };
+}
