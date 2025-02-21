@@ -23,6 +23,9 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 
 ## Installation
 
+### Cloud Hosted
+- You can signup on the Cloud Hosted version here: https://console.gravitycloud.ai
+
 ### Kubernetes
 
 #### Prerequisites
@@ -45,3 +48,6 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 2. `npm run dev`
 3. Tunnel the local server to the cloud using [ngrok](https://ngrok.com/)
 4. Update the webhook url in the Github App settings with the ngrok url
+
+### Community
+- Join our Discord Server here: https://discord.gg/fJU5DvanU3
