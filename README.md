@@ -5,10 +5,10 @@
 Matter is open-source AI Code Reviewer Agent. This enables developers to review code changes and provide feedback on the code.
 
 ### Supported Platforms
-[X] Github
-[] Gitlab
-[] Bitbucket
-[] Azure DevOps
+- [X] Github
+- [ ] Gitlab
+- [ ] Bitbucket
+- [ ] Azure DevOps
 
 ### Features
 
