@@ -92,7 +92,7 @@ export const getGithubInstallationToken = async (installationId: number) => {
     }
 
     const appId = process.env.GITHUB_APP_ID;
-    const privateKey = Buffer.from(process.env.GITHUB_PRIVATE_KEY, 'base64').toString('utf8');
+    const privateKey = Buffer.from(process.env.GITHUB_PRIVATE_KEY, 'base64')?.toString('utf8')?.trim();
 
     const auth = createAppAuth({
       appId: appId,
