@@ -7,7 +7,7 @@
   "version": "0.1.4",
   "scripts": {
     "start": "cross-env NODE_OPTIONS='--enable-source-maps=false' node dist/index.js",
-    "build": "rollup -c",
+    "build": "tsc",
     "dev": "cross-env tsx watch src/index.ts"
   },
   "type": "module",
