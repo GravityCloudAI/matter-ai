@@ -50,7 +50,7 @@ export const analyzePullRequest = async (installationId: number, repo: string, p
     const response = analysis?.choices[0]?.message?.content;
 
     if (!response) {
-        console.error('No response from AI');
+        console.log('No response from AI');
         return null;
     }
 
@@ -87,7 +87,7 @@ export const analyzePullRequest = async (installationId: number, repo: string, p
 
         return parsedContent;
     } catch (error) {
-        console.error('Error parsing response:', error);
+        console.log('Error parsing response:', error);
         return null;
     }
 };

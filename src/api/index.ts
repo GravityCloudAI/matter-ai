@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { getGithubDataFromDb } from '../integrations/github.js'
+import { forceReSync, getGithubDataFromDb } from '../integrations/github.js'
 import { getLogsFromDb } from '../ai/gateway.js'
 
 // Middleware to check API key
@@ -33,6 +33,19 @@ export default function api(app: Hono) {
 
     } catch (error) {
       return c.json({ error: 'Internal server error' }, 500)
+    }
+  })
+
+  app.get('/forceSync', authMiddleware, async (c) => {
+    try {
+        const res = c.req.query('res')
+        if (!res) {
+            return c.json({ error: 'Missing resource' }, 400)
+        }
+        await forceReSync(res as 'repositories' | 'pullRequests' | 'users' | 'branches')
+        return c.json({ message: 'Synced' })
+    } catch (error) {
+        return c.json({ error: 'Internal server error' }, 500)
     }
   })
 

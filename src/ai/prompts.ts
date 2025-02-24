@@ -30,7 +30,7 @@ export async function getPrompt(promptId: string): Promise<Prompt> {
         const prompt = await response.json();
         return prompt;
     } catch (error) {
-        console.error('Error fetching prompt:', error);
+        console.log('Error fetching prompt:', error);
         throw error;
     }
 }

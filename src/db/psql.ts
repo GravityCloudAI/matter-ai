@@ -79,7 +79,7 @@ export const queryWParams = async (query: string, params: any[]) => {
         client.release()
         return result
     } catch (error) {
-        console.error(error)
+        console.log(error)
         throw error
     }
 }
@@ -90,7 +90,7 @@ export const query = async (query: string) => {
         const result = await client.query(query)
         return result
     } catch (error) {
-        console.error(error)
+        console.log(error)
         throw error
     }
 }

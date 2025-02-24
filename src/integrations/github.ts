@@ -34,7 +34,7 @@ const githubWebhookHandler = async (c: any) => {
 
     return c.json({ status: 'received' });
   } catch (error) {
-    console.error('Error handling webhook event:', error);
+    console.log('Error handling webhook event:', error);
     return c.json({ error: 'Webhook handler failed' }, 500);
   }
 };
@@ -60,7 +60,7 @@ export default function githubApp(app: Hono) {
 
       return c.json(response.data);
     } catch (error) {
-      console.error('Error handling OAuth redirect:', error);
+      console.log('Error handling OAuth redirect:', error);
       return c.json({ error: 'OAuth handler failed' }, 500);
     }
   });
@@ -93,7 +93,7 @@ export const getGithubInstallationToken = async (installationId: number) => {
 
     const appId = process.env.GITHUB_APP_ID;
     const privateKey = Buffer.from(
-      process.env.GITHUB_PRIVATE_KEY, 
+      process.env.GITHUB_PRIVATE_KEY,
       'base64'
     ).toString('utf8').trim();
 
@@ -107,14 +107,14 @@ export const getGithubInstallationToken = async (installationId: number) => {
     return installationAuthentication.token;
   } catch (error: any) {
     if (error.status === 403) {
-      console.error("Authentication failed - rate limit or permissions issue:", error.message);
+      console.log("Authentication failed - rate limit or permissions issue:", error.message);
       throw new Error("GitHub authentication failed - rate limit or permissions issue");
     }
     if (error.status === 401) {
-      console.error("Invalid authentication credentials");
+      console.log("Invalid authentication credentials");
       throw new Error("Invalid GitHub authentication credentials");
     }
-    console.error("Error getting installation token:", error);
+    console.log("Error getting installation token:", error);
     throw error;
   }
 }
@@ -149,11 +149,11 @@ const listRepos = async (token: string, owner: string, repoName?: string) => {
         }];
       } catch (error: any) {
         if (error.status === 403) {
-          console.error("Rate limit exceeded for repo fetch:", error.message);
+          console.log("Rate limit exceeded for repo fetch:", error.message);
           throw new Error("GitHub API rate limit exceeded");
         }
         if (error.status === 404) {
-          console.error("Repository not found:", repoName);
+          console.log("Repository not found:", repoName);
           return null;
         }
         throw error;
@@ -204,14 +204,14 @@ const listRepos = async (token: string, owner: string, repoName?: string) => {
 
   } catch (error: any) {
     if (error.status === 403) {
-      console.error("Rate limit exceeded:", error.message);
+      console.log("Rate limit exceeded:", error.message);
       throw new Error("GitHub API rate limit exceeded");
     }
     if (error.timeout) {
-      console.error("Request timeout while fetching repositories");
+      console.log("Request timeout while fetching repositories");
       throw new Error("GitHub API request timeout");
     }
-    console.error("Error listing repositories:", error);
+    console.log("Error listing repositories:", error);
     throw error;
   }
 }
@@ -248,7 +248,7 @@ const listAllBranches = async (token: string, repo: string, owner: string) => {
 
     return allBranches;
   } catch (error) {
-    console.error("Error listing branches:", error)
+    console.log("Error listing branches:", error)
     return null
   }
 }
@@ -330,16 +330,17 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
           }))
         }];
       } catch (error: any) {
+        console.log("[PULL_REQUEST] Error fetching PR #", prNumber)
         if (error.status === 403) {
-          console.error("Rate limit exceeded for PR fetch:", error.message);
+          console.log("Rate limit exceeded for PR fetch:", error.message);
           throw new Error("GitHub API rate limit exceeded");
         }
         if (error.status === 404) {
-          console.error("Pull request not found:", prNumber);
+          console.log("Pull request not found:", prNumber);
           return null;
         }
         if (error.timeout) {
-          console.error("Request timeout while fetching PR details");
+          console.log("Request timeout while fetching PR details");
           throw new Error("GitHub API request timeout");
         }
         throw error;
@@ -360,17 +361,19 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
           page: page
         });
 
+        console.log("[PULL_REQUEST] Found", response.data.length, "PRs for", repo)
+
         if (response.data.length === 0) break;
         allPullRequests = [...allPullRequests, ...response.data];
         if (response.data.length < 100) break;
         page++;
       } catch (error: any) {
         if (error.status === 403) {
-          console.error("Rate limit exceeded while listing PRs:", error.message);
+          console.log("Rate limit exceeded while listing PRs:", error.message);
           throw new Error("GitHub API rate limit exceeded");
         }
         if (error.timeout) {
-          console.error("Request timeout while listing PRs");
+          console.log("Request timeout while listing PRs");
           throw new Error("GitHub API request timeout");
         }
         throw error;
@@ -400,7 +403,7 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
           };
         } catch (error: any) {
           if (error.status === 403) {
-            console.error(`Rate limit exceeded while fetching files for PR #${pr.number}:`, error.message);
+            console.log(`Rate limit exceeded while fetching files for PR #${pr.number}:`, error.message);
             // Return PR without files rather than failing completely
             return {
               ...pr,
@@ -408,13 +411,13 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
             };
           }
           if (error.timeout) {
-            console.error(`Request timeout while fetching files for PR #${pr.number}`);
+            console.log(`Request timeout while fetching files for PR #${pr.number}`);
             return {
               ...pr,
               changed_files: []
             };
           }
-          console.error(`Error fetching files for PR #${pr.number}:`, error);
+          console.log(`Error fetching files for PR #${pr.number}:`, error);
           return {
             ...pr,
             changed_files: []
@@ -427,14 +430,14 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
 
   } catch (error: any) {
     if (error.status === 403) {
-      console.error("Rate limit exceeded:", error.message);
+      console.log("Rate limit exceeded:", error.message);
       throw new Error("GitHub API rate limit exceeded");
     }
     if (error.timeout) {
-      console.error("Request timeout while fetching pull requests");
+      console.log("Request timeout while fetching pull requests");
       throw new Error("GitHub API request timeout");
     }
-    console.error("Error listing pull requests:", error);
+    console.log("Error listing pull requests:", error);
     return null;
   }
 }
@@ -464,7 +467,7 @@ const getPullRequestTemplate = async (token: string, repo: string, owner: string
       // Template doesn't exist, which is fine
       return null;
     }
-    console.error("Error fetching PR template:", error);
+    console.log("Error fetching PR template:", error);
     return null;
   }
 }
@@ -480,6 +483,8 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
   if (eventType?.startsWith('repository')) {
     const repoAction = eventPayload?.action
     const repo = eventPayload?.repository
+
+    console.log("[REPOSITORY] Syncing repository:", repo.name)
 
     const existingData = await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId])
     let allRepos = existingData?.rows[0]?.repositories || []
@@ -526,6 +531,8 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
   } else if (eventType === 'installation') {
     // For new installations, fetch all repos and their branches
     const allRepos: any = await listRepos(githubToken, owner)
+    console.log("[INSTALLATION] Syncing repositories:", allRepos.length)
+
     await queryWParams(
       `INSERT INTO github_repositories (installation_id, repositories) 
        VALUES ($1, $2::jsonb)
@@ -546,6 +553,8 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
     const prAction = eventPayload?.action
     const repo = eventPayload?.repository?.name
     const prNumber = eventPayload?.pull_request?.number
+
+    console.log("[PULL_REQUEST] Syncing pull request:", prNumber)
 
     const existingData = await queryWParams(`SELECT * FROM github_pull_requests WHERE installation_id = $1`, [installationId])
     let allPullRequests = existingData?.rows[0]?.pull_requests || []
@@ -635,7 +644,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
                 analysis?.codeChangeGeneration?.reviewBody,
                 mergedComments)
             } catch (error) {
-              console.error("Error adding review to pull request:", error)
+              console.log("Error adding review to pull request:", error)
             }
           }
         }
@@ -660,11 +669,13 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
       // fetch all PRs for all repos
       for (const repo of allRepos) {
         const prs = await listPullRequests(githubToken, repo.name, owner)
+        console.log("[INSTALLATION] Found", prs?.length, "PRs for", repo.name)
         if (prs) {
           allPullRequests.push({
             repo: repo.name,
             prs: prs
           });
+          console.log("[INSTALLATION] Syncing pull requests:", allPullRequests.length)
         }
       }
       // Insert all PRs at once after collecting them
@@ -721,7 +732,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
               }
             }
           } catch (error) {
-            console.error(`Error processing repo ${repo.name}:`, error);
+            console.log(`Error processing repo ${repo.name}:`, error);
           }
         };
 
@@ -759,13 +770,19 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 
 export const getGithubDataFromDb = async () => {
   try {
+    console.log("[GET_GITHUB_DATA_FROM_DB] Getting data from db")
     const githubData = await queryWParams(`SELECT * FROM github_data limit 1`, [])
     const installationId = githubData?.rows[0]?.installation_id
 
+    console.log("[GET_GITHUB_DATA_FROM_DB] Getting repositories")
     const repositories = await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId])
+    console.log("[GET_GITHUB_DATA_FROM_DB] Getting pull requests")
     const pullRequests = await queryWParams(`SELECT * FROM github_pull_requests WHERE installation_id = $1`, [installationId])
+    console.log("[GET_GITHUB_DATA_FROM_DB] Getting users")
     const users = await queryWParams(`SELECT * FROM github_users WHERE installation_id = $1`, [installationId])
+    console.log("[GET_GITHUB_DATA_FROM_DB] Getting branches")
     const branches = await queryWParams(`SELECT * FROM github_branches WHERE installation_id = $1`, [installationId])
+    console.log("[GET_GITHUB_DATA_FROM_DB] Getting pull request analysis")
     const pullRequestAnalysis = await queryWParams(`SELECT * FROM github_pull_request_analysis WHERE installation_id = $1`, [installationId])
 
     const responseData = {
@@ -843,7 +860,7 @@ export const getGithubDataFromDb = async () => {
         return repo
       }) : [],
       repoBranches: branches?.rows[0]?.branches ? branches?.rows[0]?.branches : [],
-      pullRequests: pullRequests?.rows[0]?.pull_requests ? await Promise.all(pullRequests?.rows[0]?.pull_requests?.map(async (prData: any) => {
+      pullRequests: pullRequests?.rows[0]?.pull_requests ? pullRequests?.rows[0]?.pull_requests?.map((prData: any) => {
         return {
           repo: prData.repo,
           prs: await Promise.all(prData.prs?.map(async (pr: any) => {
@@ -887,7 +904,7 @@ export const getGithubDataFromDb = async () => {
             }
           }))
         }
-      })) : [],
+      }) : [],
       users: users?.rows[0]?.users ? users?.rows[0]?.users?.map((user: any) => {
         delete user.followers_url;
         delete user.following_url;
@@ -905,7 +922,7 @@ export const getGithubDataFromDb = async () => {
 
     return responseData
   } catch (error) {
-    console.error('Error getting github data from db:', error);
+    console.log('Error getting github data from db:', error);
     throw error;
   }
 }
@@ -952,7 +969,7 @@ export const addReviewToPullRequest = async (
         });
 
       } catch (error) {
-        console.error(`Failed to dismiss review ${review.id}:`, error);
+        console.log(`Failed to dismiss review ${review.id}:`, error);
       }
     }
 
@@ -978,7 +995,7 @@ export const addReviewToPullRequest = async (
     return response.data;
 
   } catch (error) {
-    console.error('Error adding review to PR:', error);
+    console.log('Error adding review to PR:', error);
     throw error;
   }
 };
