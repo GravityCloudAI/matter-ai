@@ -1,6 +1,6 @@
 # Matter
 
-![Matter Og Image](https://res.cloudinary.com/dor5uewzz/image/upload/v1739891450/matter-og-image_loyjsa.png)
+![Matter Og Image](https://res.cloudinary.com/dor5uewzz/image/upload/v1740376446/og-image-matter_kfioxu.png)
 
 Matter is open-source AI Code Reviewer Agent. This enables developers to review code changes and provide feedback on the code.
 
@@ -20,6 +20,7 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 | AI Code quality score and Suggestions | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
 | AI Pull Request Checklist and Suggestions | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
 | Internal Documentation Support | ✅ | <kbd>Paid</kbd> / <kbd>Enterprise</kbd> |
+| Generate AI Release Notes | ✅ | <kbd>Paid</kbd> / <kbd>Enterprise</kbd> |
 
 ## Installation
 
