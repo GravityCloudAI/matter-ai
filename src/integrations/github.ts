@@ -863,7 +863,7 @@ export const getGithubDataFromDb = async () => {
       pullRequests: pullRequests?.rows[0]?.pull_requests ? pullRequests?.rows[0]?.pull_requests?.map((prData: any) => {
         return {
           repo: prData.repo,
-          prs: prData.prs?.map(async (pr: any) => {
+          prs: prData.prs?.map((pr: any) => {
 
             const analysis = pullRequestAnalysis?.rows?.find((analysis: any) => analysis.pr_id === pr.number)
 
