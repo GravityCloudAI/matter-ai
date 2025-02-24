@@ -863,7 +863,7 @@ export const getGithubDataFromDb = async () => {
       pullRequests: pullRequests?.rows[0]?.pull_requests ? pullRequests?.rows[0]?.pull_requests?.map((prData: any) => {
         return {
           repo: prData.repo,
-          prs: await Promise.all(prData.prs?.map(async (pr: any) => {
+          prs: prData.prs?.map(async (pr: any) => {
 
             const analysis = pullRequestAnalysis?.rows?.find((analysis: any) => analysis.pr_id === pr.number)
 
@@ -902,7 +902,7 @@ export const getGithubDataFromDb = async () => {
               ...pr,
               checks: analysis?.analysis ?? analyzePullRequestStatic(pr)
             }
-          }))
+          })
         }
       }) : [],
       users: users?.rows[0]?.users ? users?.rows[0]?.users?.map((user: any) => {
