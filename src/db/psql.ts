@@ -51,11 +51,14 @@ export const init = async () => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`)
 
-    await client.query(`CREATE TABLE IF NOT EXISTS github_pull_request_analysis (
-        installation_id INTEGER,
-        repo TEXT,
-        pr_id INTEGER,
-        analysis JSONB,
+    await client.query(`CREATE TABLE IF NOT EXISTS github_pull_requests (
+        installation_id INTEGER NOT NULL,
+        repo VARCHAR(255) NOT NULL,
+        pr_id INTEGER NOT NULL,
+        pr_data JSONB NOT NULL,
+        pr_status VARCHAR(50) DEFAULT 'open',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (installation_id, repo, pr_id)
     )`)
 
@@ -90,7 +93,6 @@ const getClientConnection = async () => {
 export const queryWParams = async (query: string, params: any[]) => {
     const client = await getClientConnection()
     try {
-        console.log("[QUERY_W_PARAMS] Querying with params", query, params)
         const result = await client.query(query, params)
         return result
     } catch (error) {
@@ -104,7 +106,6 @@ export const queryWParams = async (query: string, params: any[]) => {
 export const query = async (query: string) => {
     const client = await getClientConnection()
     try {
-        console.log("[QUERY] Querying", query)
         const result = await client.query(query)
         return result
     } catch (error) {

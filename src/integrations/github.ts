@@ -358,7 +358,6 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
     let allPullRequests: any = [];
     let page = 1;
 
-    // Calculate date threshold for skipping older PRs (3 months ago)
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
@@ -414,7 +413,6 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
       }
     }
 
-    // Calculate date threshold for skipping file fetching (1 week ago)
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
     
@@ -437,7 +435,6 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
             // Skip fetching files for PRs older than one week
             const prUpdatedAt = new Date(pr.updated_at);
             if (prUpdatedAt < oneWeekAgo) {
-              console.log(`Skipping file fetch for older PR #${pr.number} (updated ${prUpdatedAt.toISOString()})`);
               return {
                 ...pr,
                 changed_files: []
