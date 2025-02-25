@@ -11,6 +11,8 @@ if (!process.env.GITHUB_WEBHOOK_SECRET) {
   throw new Error('GitHub webhook secret is not set');
 }
 
+const USER_AGENT = "matter-self-hosted-github-agent v0.1"
+
 export const REPO_COLORS = ['green', 'orange', 'red', 'yellow', 'limegreen', 'info', 'lightblue'];
 
 const githubWebhookHandler = async (c: any) => {
@@ -128,7 +130,7 @@ const listRepos = async (token: string, owner: string, repoName?: string) => {
   try {
     const octokit = new Octokit({
       auth: token,
-      userAgent: "matter-self-hosted-github-agent v0.1",
+      userAgent: USER_AGENT,
       request: {
         timeout: 10000 // 10 second timeout
       }
@@ -225,7 +227,7 @@ const listAllBranches = async (token: string, repo: string, owner: string) => {
   try {
     const octokit = new Octokit({
       auth: token,
-      userAgent: "matter-self-hosted-github-agent v0.1"
+      userAgent: USER_AGENT
     })
 
     let allBranches: any[] = [];
@@ -301,7 +303,7 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
   try {
     const octokit = new Octokit({
       auth: token,
-      userAgent: "matter-self-hosted-github-agent v0.1",
+      userAgent: USER_AGENT,
       request: {
         timeout: 10000 // 10 second timeout
       }
@@ -450,7 +452,7 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
 const getPullRequestTemplate = async (token: string, repo: string, owner: string): Promise<string | null> => {
   const octokit = new Octokit({
     auth: token,
-    userAgent: "matter-self-hosted-github-agent v0.1",
+    userAgent: USER_AGENT,
     request: {
       timeout: 10000
     }
@@ -648,6 +650,12 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
                 analysis?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
                 analysis?.codeChangeGeneration?.reviewBody,
                 mergedComments)
+
+                if (pullRequestTemplate) {
+                  await updatePRDescription(githubToken, owner, repo, prNumber, analysis?.checklist?.checklistTemplate)
+                } else {
+                  await updatePRDescription(githubToken, owner, repo, prNumber, analysis?.summary?.description)
+                }
             } catch (error) {
               console.log("Error adding review to pull request:", error)
             }
@@ -1038,3 +1046,24 @@ export const forceReSync = async (resource: 'repositories' | 'pullRequests' | 'u
   }
 }
 
+const updatePRDescription = async (githubToken: string, owner: string, repo: string, prId: number, description: string) => {
+  try {
+    const octokit = new Octokit({
+      auth: githubToken,
+      userAgent: USER_AGENT,
+    });
+
+    const response = await octokit.pulls.update({
+      owner,
+      repo,
+      pull_number: prId,
+      body: description
+    });
+
+    console.log(`Updated PR #${prId} description in repo ${repo}`);
+    return response.data;
+  } catch (error) {
+    console.log('Error updating PR description:', error);
+    throw error;
+  }
+}
