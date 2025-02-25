@@ -75,26 +75,20 @@ webhooks.onAny(async (event: any) => {
   if (event.name === "installation" && event.payload?.action === "created") {
     await queryWParams(`INSERT INTO github_data (installation_id, payload) VALUES ($1, $2::jsonb)`, [event.payload?.installation?.id, event.payload])
   } else if (event.name === "installation" && event.payload?.action === "deleted") {
-try {
-  await db.transaction(async (trx) => {
-    await trx.raw('DELETE FROM github_data WHERE installation_id = ?', [event.payload?.installation?.id]);
-    await trx.raw('DELETE FROM github_repositories WHERE installation_id = ?', [event.payload?.installation?.id]);
-    await trx.raw('DELETE FROM github_branches WHERE installation_id = ?', [event.payload?.installation?.id]);
-    await trx.raw('DELETE FROM github_pull_requests WHERE installation_id = ?', [event.payload?.installation?.id]);
-  });
-  logger.info(`Successfully deleted data for installation ${event.payload?.installation?.id}`);
-} catch (error) {
-  logger.error(`Failed to delete installation data: ${error}`);
-  throw error;
-}
-    await query(`DELETE * FROM github_repositories`)
-    await query(`DELETE * FROM github_branches`)
-    await query(`DELETE * FROM github_pull_requests`)
-    return
+    try {
+      await query(`DELETE * FROM github_data`);
+      await query(`DELETE * FROM github_repositories`);
+      await query(`DELETE * FROM github_branches`);
+      await query(`DELETE * FROM github_pull_requests`);
+      return
+    } catch (error) {
+      console.log("Error deleting installation data:", error)
+    }
   }
   const githubData = await query(`SELECT * FROM github_data LIMIT 1`)
   await syncUpdatedEventAndStoreInDb(event, githubData?.rows[0]?.payload)
 });
+
 
 export const getGithubInstallationToken = async (installationId: number) => {
   try {
