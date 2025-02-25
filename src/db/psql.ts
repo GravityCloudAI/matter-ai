@@ -72,25 +72,41 @@ export const init = async () => {
     client.release()
 }
 
-export const queryWParams = async (query: string, params: any[]) => {
+const getClientConnection = async () => {
     try {
+        console.log("[GET_CLIENT_CONNECTION] Getting client connection")
         const client = await pool.connect()
-        const result = await client.query(query, params)
-        client.release()
-        return result
+        return client
     } catch (error) {
-        console.log(error)
+        console.log("[GET_CLIENT_CONNECTION] Error getting client connection", error)
         throw error
     }
 }
 
-export const query = async (query: string) => {
+export const queryWParams = async (query: string, params: any[]) => {
+    const client = await getClientConnection()
     try {
-        const client = await pool.connect()
+        console.log("[QUERY_W_PARAMS] Querying with params", query, params)
+        const result = await client.query(query, params)
+        return result
+    } catch (error) {
+        console.log("[QUERY_W_PARAMS] Error querying with params", error)
+        throw error
+    } finally {
+        client.release()
+    }
+}
+
+export const query = async (query: string) => {
+    const client = await getClientConnection()
+    try {
+        console.log("[QUERY] Querying", query)
         const result = await client.query(query)
         return result
     } catch (error) {
-        console.log(error)
+        console.log("[QUERY] Error querying", error)
         throw error
+    } finally {
+        client.release()
     }
 }

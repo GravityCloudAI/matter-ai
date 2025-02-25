@@ -78,16 +78,16 @@ webhooks.onAny(async (event: any) => {
     await queryWParams(`INSERT INTO github_data (installation_id, payload) VALUES ($1, $2::jsonb)`, [event.payload?.installation?.id, event.payload])
   } else if (event.name === "installation" && event.payload?.action === "deleted") {
     try {
-      await query(`DELETE * FROM github_data`);
-      await query(`DELETE * FROM github_repositories`);
-      await query(`DELETE * FROM github_branches`);
-      await query(`DELETE * FROM github_pull_requests`);
+      await query(`DELETE FROM github_data`);
+      await query(`DELETE FROM github_repositories`);
+      await query(`DELETE FROM github_branches`);
+      await query(`DELETE FROM github_pull_requests`);
       return
     } catch (error) {
       console.log("Error deleting installation data:", error)
     }
   }
-  const githubData = await query(`SELECT * FROM github_data LIMIT 1`)
+  const githubData = await query(`SELECT * FROM github_data ORDER BY created_at DESC LIMIT 1`)
   await syncUpdatedEventAndStoreInDb(event, githubData?.rows[0]?.payload)
 });
 
@@ -784,7 +784,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 export const getGithubDataFromDb = async () => {
   try {
     console.log("[GET_GITHUB_DATA_FROM_DB] Getting data from db")
-    const githubData = await queryWParams(`SELECT * FROM github_data limit 1`, [])
+    const githubData = await query(`SELECT * FROM github_data ORDER BY created_at DESC LIMIT 1`)
     const installationId = githubData?.rows[0]?.installation_id
 
     console.log("[GET_GITHUB_DATA_FROM_DB] Getting repositories")
@@ -1014,7 +1014,7 @@ export const addReviewToPullRequest = async (
 };
 
 export const forceReSync = async (resource: 'repositories' | 'pullRequests' | 'users' | 'branches') => {
-  const installation = await queryWParams(`SELECT * FROM github_data limit 1`, [])
+  const installation = await query(`SELECT * FROM github_data ORDER BY created_at DESC LIMIT 1`)
   const installationId = installation?.rows[0]?.installation_id
   const owner = installation?.rows[0]?.payload?.installation?.account?.login
 
