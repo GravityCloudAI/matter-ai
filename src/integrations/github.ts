@@ -78,16 +78,16 @@ webhooks.onAny(async (event: any) => {
     await queryWParams(`INSERT INTO github_data (installation_id, payload) VALUES ($1, $2::jsonb)`, [event.payload?.installation?.id, event.payload])
   } else if (event.name === "installation" && event.payload?.action === "deleted") {
     try {
-      await query(`DELETE * FROM github_data`);
-      await query(`DELETE * FROM github_repositories`);
-      await query(`DELETE * FROM github_branches`);
-      await query(`DELETE * FROM github_pull_requests`);
+      await query(`DELETE FROM github_data`);
+      await query(`DELETE FROM github_repositories`);
+      await query(`DELETE FROM github_branches`);
+      await query(`DELETE FROM github_pull_requests`);
       return
     } catch (error) {
       console.log("Error deleting installation data:", error)
     }
   }
-  const githubData = await query(`SELECT * FROM github_data LIMIT 1`)
+  const githubData = await query(`SELECT * FROM github_data ORDER BY created_at DESC LIMIT 1`)
   await syncUpdatedEventAndStoreInDb(event, githubData?.rows[0]?.payload)
 });
 
@@ -348,9 +348,9 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
         }
         if (error.timeout) {
           console.log("Request timeout while fetching PR details");
-          throw new Error("GitHub API request timeout");
+          return null
         }
-        throw error;
+        return null
       }
     }
 
@@ -358,8 +358,16 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
     let allPullRequests: any = [];
     let page = 1;
 
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
     while (true) {
       try {
+        // Add a delay between paginated requests to avoid rate limiting
+        if (page > 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
         const response = await octokit.pulls.list({
           owner,
           repo,
@@ -371,78 +379,121 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
         console.log("[PULL_REQUEST] Found", response.data.length, "PRs for", repo)
 
         if (response.data.length === 0) break;
-        allPullRequests = [...allPullRequests, ...response.data];
+        
+        // Filter out PRs older than 3 months
+        const recentPRs = response.data.filter(pr => {
+          const updatedAt = new Date(pr.updated_at);
+          return updatedAt >= threeMonthsAgo;
+        });
+        
+        console.log(`[PULL_REQUEST] Keeping ${recentPRs.length} of ${response.data.length} PRs (filtered older than 3 months)`);
+        
+        allPullRequests = [...allPullRequests, ...recentPRs];
+        
+        // If we got fewer PRs than requested or all PRs in this page were filtered out, we've hit the end
         if (response.data.length < 100) break;
+        
         page++;
       } catch (error: any) {
         if (error.status === 403) {
           console.log("Rate limit exceeded while listing PRs:", error.message);
-          throw new Error("GitHub API rate limit exceeded");
+          // Wait for 60 seconds and try again instead of failing completely
+          console.log("Waiting 60 seconds before retrying...");
+          await new Promise(resolve => setTimeout(resolve, 60000));
+          continue; // Try the same page again
         }
         if (error.timeout) {
           console.log("Request timeout while listing PRs");
-          throw new Error("GitHub API request timeout");
+          // Wait for 10 seconds and try again
+          console.log("Waiting 10 seconds before retrying...");
+          await new Promise(resolve => setTimeout(resolve, 10000));
+          continue; // Try the same page again
         }
-        throw error;
+        return null
       }
     }
 
-    const pullRequestsWithFiles = await Promise.all(
-      allPullRequests.map(async (pr: any) => {
-        try {
-          const { data: files } = await octokit.pulls.listFiles({
-            owner,
-            repo,
-            pull_number: pr.number,
-            per_page: 100
-          });
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    
+    // Process PRs in batches to respect rate limits
+    const batchSize = 5; // Process 5 PRs at a time
+    const pullRequestsWithFiles = [];
+    
+    for (let i = 0; i < allPullRequests.length; i += batchSize) {
+      const batch = allPullRequests.slice(i, Math.min(i + batchSize, allPullRequests.length));
+      
+      // Process batch with a small delay between each PR
+      const batchResults = await Promise.all(
+        batch.map(async (pr: any, index: number) => {
+          // Add a small delay between requests to avoid rate limiting
+          if (index > 0) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
+          try {
+            // Skip fetching files for PRs older than one week
+            const prUpdatedAt = new Date(pr.updated_at);
+            if (prUpdatedAt < oneWeekAgo) {
+              return {
+                ...pr,
+                changed_files: []
+              };
+            }
+            
+            const { data: files } = await octokit.pulls.listFiles({
+              owner,
+              repo,
+              pull_number: pr.number,
+              per_page: 100
+            });
 
-          return {
-            ...pr,
-            changed_files: files.map(file => ({
-              filename: file.filename,
-              status: file.status,
-              additions: file.additions,
-              deletions: file.deletions,
-              changes: file.changes,
-              patch: file.patch
-            }))
-          };
-        } catch (error: any) {
-          if (error.status === 403) {
-            console.log(`Rate limit exceeded while fetching files for PR #${pr.number}:`, error.message);
-            // Return PR without files rather than failing completely
+            return {
+              ...pr,
+              changed_files: files.map(file => ({
+                filename: file.filename,
+                status: file.status,
+                additions: file.additions,
+                deletions: file.deletions,
+                changes: file.changes,
+                patch: file.patch
+              }))
+            };
+          } catch (error: any) {
+            if (error.status === 403) {
+              console.log(`Rate limit exceeded while fetching files for PR #${pr.number}:`, error.message);
+              // If we hit rate limit, add a longer delay before continuing
+              await new Promise(resolve => setTimeout(resolve, 30000));
+              return {
+                ...pr,
+                changed_files: []
+              };
+            }
+            console.log(`Error fetching files for PR #${pr.number}:`, error);
             return {
               ...pr,
               changed_files: []
             };
           }
-          if (error.timeout) {
-            console.log(`Request timeout while fetching files for PR #${pr.number}`);
-            return {
-              ...pr,
-              changed_files: []
-            };
-          }
-          console.log(`Error fetching files for PR #${pr.number}:`, error);
-          return {
-            ...pr,
-            changed_files: []
-          };
-        }
-      })
-    );
+        })
+      );
+      
+      pullRequestsWithFiles.push(...batchResults);
+      
+      // Add a delay between batches to avoid rate limiting
+      if (i + batchSize < allPullRequests.length) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
 
     return pullRequestsWithFiles;
 
   } catch (error: any) {
     if (error.status === 403) {
       console.log("Rate limit exceeded:", error.message);
-      throw new Error("GitHub API rate limit exceeded");
     }
     if (error.timeout) {
       console.log("Request timeout while fetching pull requests");
-      throw new Error("GitHub API request timeout");
     }
     console.log("Error listing pull requests:", error);
     return null;
@@ -838,28 +889,18 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
     const repo = eventPayload?.repository?.name
     const prNumber = eventPayload?.pull_request?.number
 
-    console.log("[PULL_REQUEST] Syncing pull request:", prNumber)
-
-    const existingData = await queryWParams(`SELECT * FROM github_pull_requests WHERE installation_id = $1`, [installationId])
-    let allPullRequests = existingData?.rows[0]?.pull_requests || []
+    console.log("[PULL_REQUEST] Syncing pull request:", prNumber, "Action:", prAction)
 
     if (prAction === 'opened' || prAction === 'synchronize' || prAction === 'edited' || prAction === 'reopened' || prAction === 'closed') {
       const updatedPR = await listPullRequests(githubToken, repo, owner, prNumber)
-      if (updatedPR) {
-        const repoIndex = allPullRequests.findIndex((r: any) => r.repo === repo)
-        if (repoIndex === -1) {
-          allPullRequests.push({
-            repo,
-            prs: [updatedPR[0]]
-          })
-        } else {
-          const prIndex = allPullRequests[repoIndex].prs.findIndex((pr: any) => pr.number === prNumber)
-          if (prIndex === -1) {
-            allPullRequests[repoIndex].prs.push(updatedPR[0])
-          } else {
-            allPullRequests[repoIndex].prs[prIndex] = updatedPR[0]
-          }
-        }
+      if (updatedPR && updatedPR[0]) {
+        await queryWParams(
+          `INSERT INTO github_pull_requests (installation_id, repo, pr_id, pr_data, pr_status) 
+           VALUES ($1, $2, $3, $4::jsonb, $5)
+           ON CONFLICT ON CONSTRAINT github_pull_requests_pkey 
+           DO UPDATE SET pr_data = $4::jsonb, pr_status = $5, updated_at = NOW()`,
+          [installationId, repo, prNumber, JSON.stringify(updatedPR[0]), prAction === 'closed' ? 'closed' : 'open']
+        )
 
         if (prAction === 'opened' || prAction === 'edited' || prAction === 'synchronize') {
           const prForAnalysis = {
@@ -921,123 +962,118 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
               console.log("Error adding review to pull request:", error)
             }
           }
-        }
-
-      }
-    }
-
-    await queryWParams(
-      `INSERT INTO github_pull_requests (installation_id, pull_requests) 
-       VALUES ($1, $2::jsonb)
-       ON CONFLICT (installation_id) 
-       DO UPDATE SET pull_requests = $2::jsonb`,
-      [installationId, JSON.stringify(allPullRequests)]
-    )
-  } else if (eventType === 'installation') {
-    // wait fpr 10s
-    await new Promise(resolve => setTimeout(resolve, 10000));
-    // For new installations, fetch all PRs
-    const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1::integer limit 1`, [installationId]))?.rows[0]?.repositories
-    if (allRepos) {
-      let allPullRequests: any[] = [];
-      // fetch all PRs for all repos
-      for (const repo of allRepos) {
-        const prs = await listPullRequests(githubToken, repo.name, owner)
-        console.log("[INSTALLATION] Found", prs?.length, "PRs for", repo.name)
-        if (prs) {
-          allPullRequests.push({
-            repo: repo.name,
-            prs: prs
-          });
-          console.log("[INSTALLATION] Syncing pull requests:", allPullRequests.length)
+        } else if (prAction === 'deleted') {
+          // For deleted PRs, we can either remove them or mark them as deleted
+          await queryWParams(
+            `UPDATE github_pull_requests 
+             SET pr_status = 'deleted', updated_at = NOW()
+             WHERE installation_id = $1 AND repo = $2 AND pr_id = $3`,
+            [installationId, repo, prNumber]
+          )
         }
       }
-      // Insert all PRs at once after collecting them
-      await queryWParams(
-        `INSERT INTO github_pull_requests (installation_id, pull_requests) 
-         VALUES ($1, $2::jsonb)
-         ON CONFLICT (installation_id) 
-         DO UPDATE SET pull_requests = $2::jsonb`,
-        [installationId, JSON.stringify(allPullRequests)]
-      )
-    }
-  }
-
-  if (!eventType || eventType === 'installation' || eventType === 'member' || eventType === 'organization') {
-    const octokit = new Octokit({
-      auth: githubToken,
-      userAgent: "matter-self-hosted-github-agent v0.1"
-    });
-
-    const users = await octokit.paginate(octokit.orgs.listMembers, {
-      org: owner,
-      per_page: 100
-    });
-
-    if (!eventType || eventType === 'installation' || eventType === 'member') {
-      const userEmails = new Map<string, string | null>(users.map(user => [user.login, null]));
-      const userNames = new Map<string, string | null>(users.map(user => [user.login, null]));
-
-      // Only fetch commit data if we need user details
-      const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId]))?.rows[0]?.repositories
+    } else if (eventType === 'installation') {
+      // wait for 10s
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      // For new installations, fetch all PRs
+      const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1::integer limit 1`, [installationId]))?.rows[0]?.repositories
       if (allRepos) {
-        // Process repos in parallel with a limit
-        const processRepo = async (repo: any) => {
-          try {
-            // Only fetch commits if we still need user info
-            if ([...userEmails.values()].some(email => email === null) ||
-              [...userNames.values()].some(name => name === null)) {
-              const commits = await octokit.paginate(octokit.repos.listCommits, {
-                owner,
-                repo: repo.name,
-                per_page: 100
-              });
+        // Process repos in batches to avoid overwhelming the database
+        for (const repo of allRepos) {
+          const prs = await listPullRequests(githubToken, repo.name, owner)
+          console.log("[INSTALLATION] Found", prs?.length, "PRs for", repo.name)
+          
+          if (prs && prs.length > 0) {
+            // Insert PRs in batches
+            for (const pr of prs) {
+              await queryWParams(
+                `INSERT INTO github_pull_requests (installation_id, repo, pr_id, pr_data) 
+                 VALUES ($1, $2, $3, $4::jsonb)
+                 ON CONFLICT ON CONSTRAINT github_pull_requests_pkey 
+                 DO UPDATE SET pr_data = $4::jsonb, updated_at = NOW()`,
+                [installationId, repo.name, pr.number, JSON.stringify(pr)]
+              )
+            }
+            console.log("[INSTALLATION] Synced", prs.length, "PRs for", repo.name)
+          }
+        }
+      }
+    } else if (!eventType || eventType === 'installation' || eventType === 'member' || eventType === 'organization') {
+      const octokit = new Octokit({
+        auth: githubToken,
+        userAgent: "matter-self-hosted-github-agent v0.1"
+      });
 
-              for (const commit of commits) {
-                const authorLogin = commit.author?.login;
-                if (authorLogin && userEmails.has(authorLogin)) {
-                  if (!userEmails.get(authorLogin)) {
-                    userEmails.set(authorLogin, commit.commit?.author?.email || null);
-                  }
-                  if (!userNames.get(authorLogin)) {
-                    userNames.set(authorLogin, commit.commit?.author?.name || null);
+      const users = await octokit.paginate(octokit.orgs.listMembers, {
+        org: owner,
+        per_page: 100
+      });
+
+      if (!eventType || eventType === 'installation' || eventType === 'member') {
+        const userEmails = new Map<string, string | null>(users.map(user => [user.login, null]));
+        const userNames = new Map<string, string | null>(users.map(user => [user.login, null]));
+
+        // Only fetch commit data if we need user details
+        const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId]))?.rows[0]?.repositories
+        if (allRepos) {
+          // Process repos in parallel with a limit
+          const processRepo = async (repo: any) => {
+            try {
+              // Only fetch commits if we still need user info
+              if ([...userEmails.values()].some(email => email === null) ||
+                [...userNames.values()].some(name => name === null)) {
+                const commits = await octokit.paginate(octokit.repos.listCommits, {
+                  owner,
+                  repo: repo.name,
+                  per_page: 100
+                });
+
+                for (const commit of commits) {
+                  const authorLogin = commit.author?.login;
+                  if (authorLogin && userEmails.has(authorLogin)) {
+                    if (!userEmails.get(authorLogin)) {
+                      userEmails.set(authorLogin, commit.commit?.author?.email || null);
+                    }
+                    if (!userNames.get(authorLogin)) {
+                      userNames.set(authorLogin, commit.commit?.author?.name || null);
+                    }
                   }
                 }
               }
+            } catch (error) {
+              console.log(`Error processing repo ${repo.name}:`, error);
             }
-          } catch (error) {
-            console.log(`Error processing repo ${repo.name}:`, error);
+          };
+
+          // Process repos in batches of 3
+          for (let i = 0; i < allRepos.length; i += 3) {
+            const batch = allRepos.slice(i, i + 3);
+            await Promise.all(batch.map(processRepo));
           }
-        };
-
-        // Process repos in batches of 3
-        for (let i = 0; i < allRepos.length; i += 3) {
-          const batch = allRepos.slice(i, i + 3);
-          await Promise.all(batch.map(processRepo));
         }
+
+        const usersWithDetails = users.map(user => ({
+          ...user,
+          email: userEmails.get(user.login) || null,
+          name: userNames.get(user.login) || null
+        }));
+
+        await queryWParams(
+          `INSERT INTO github_users (installation_id, users) 
+           VALUES ($1, $2::jsonb)
+           ON CONFLICT (installation_id) 
+           DO UPDATE SET users = $2::jsonb`,
+          [installationId, JSON.stringify(usersWithDetails || users)]
+        )
+      } else {
+        await queryWParams(
+          `INSERT INTO github_users (installation_id, users) 
+           VALUES ($1, $2::jsonb)
+           ON CONFLICT (installation_id) 
+           DO UPDATE SET users = $2`,
+          [installationId, JSON.stringify(users)]
+        )
       }
-
-      const usersWithDetails = users.map(user => ({
-        ...user,
-        email: userEmails.get(user.login) || null,
-        name: userNames.get(user.login) || null
-      }));
-
-      await queryWParams(
-        `INSERT INTO github_users (installation_id, users) 
-         VALUES ($1, $2::jsonb)
-         ON CONFLICT (installation_id) 
-         DO UPDATE SET users = $2::jsonb`,
-        [installationId, JSON.stringify(usersWithDetails || users)]
-      )
-    } else {
-      await queryWParams(
-        `INSERT INTO github_users (installation_id, users) 
-         VALUES ($1, $2::jsonb)
-         ON CONFLICT (installation_id) 
-         DO UPDATE SET users = $2`,
-        [installationId, JSON.stringify(users)]
-      )
     }
   }
 
@@ -1085,13 +1121,17 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 export const getGithubDataFromDb = async () => {
   try {
     console.log("[GET_GITHUB_DATA_FROM_DB] Getting data from db")
-    const githubData = await queryWParams(`SELECT * FROM github_data limit 1`, [])
+    const githubData = await query(`SELECT * FROM github_data ORDER BY created_at DESC LIMIT 1`)
     const installationId = githubData?.rows[0]?.installation_id
 
     console.log("[GET_GITHUB_DATA_FROM_DB] Getting repositories")
     const repositories = await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId])
     console.log("[GET_GITHUB_DATA_FROM_DB] Getting pull requests")
-    const pullRequests = await queryWParams(`SELECT * FROM github_pull_requests WHERE installation_id = $1`, [installationId])
+    const pullRequests = await queryWParams(`
+      SELECT repo, pr_id, pr_data, pr_status, updated_at 
+      FROM github_pull_requests 
+      WHERE installation_id = $1 AND pr_status != 'deleted'
+      ORDER BY updated_at DESC`, [installationId])
     console.log("[GET_GITHUB_DATA_FROM_DB] Getting users")
     const users = await queryWParams(`SELECT * FROM github_users WHERE installation_id = $1`, [installationId])
     console.log("[GET_GITHUB_DATA_FROM_DB] Getting branches")
@@ -1099,9 +1139,64 @@ export const getGithubDataFromDb = async () => {
     console.log("[GET_GITHUB_DATA_FROM_DB] Getting pull request analysis")
     const pullRequestAnalysis = await queryWParams(`SELECT * FROM github_pull_request_analysis WHERE installation_id = $1`, [installationId])
 
+    // Group PRs by repo
+    const groupedPRs = pullRequests?.rows?.reduce((acc: any, pr: any) => {
+      if (!acc[pr.repo]) {
+        acc[pr.repo] = [];
+      }
+      acc[pr.repo].push({
+        ...pr.pr_data,
+        status: pr.pr_status
+      });
+      return acc;
+    }, {});
+
+    // Convert to the expected format
+    const formattedPRs = Object.keys(groupedPRs || {}).map(repo => ({
+      repo,
+      prs: groupedPRs[repo].map((pr: any) => {
+        const analysis = pullRequestAnalysis?.rows?.find((a: any) => a.pr_id === pr.number && a.repo === repo);
+
+        // clean user data
+        delete pr.user.followers_url;
+        delete pr.user.following_url;
+        delete pr.user.gists_url;
+        delete pr.user.starred_url;
+        delete pr.user.subscriptions_url;
+        delete pr.user.organizations_url;
+        delete pr.user.repos_url;
+        delete pr.user.events_url;
+        delete pr.user.received_events_url;
+        delete pr.user.url;
+
+        delete pr.diff_url
+        delete pr.commits_url
+        delete pr.patch_url
+        delete pr.url
+        delete pr.statuses_url
+
+        delete pr.commits_url
+        delete pr.review_comments_url
+        delete pr.review_comment_url
+        delete pr.comments_url
+
+        //clean head, base and links
+        const head = pr.head
+        delete pr.head
+        delete pr.base;
+        delete pr._links;
+
+        pr.head = { repo: { name: head?.repo?.name }, ref: head?.ref }
+
+        return {
+          ...pr,
+          checks: analysis?.analysis ?? analyzePullRequestStatic(pr)
+        }
+      })
+    }));
+
     const responseData = {
       repositories: repositories?.rows[0]?.repositories ? repositories?.rows[0]?.repositories?.map((repo: any) => {
-
         // clean owner data
         delete repo.owner.followers_url;
         delete repo.owner.following_url;
@@ -1114,7 +1209,6 @@ export const getGithubDataFromDb = async () => {
         delete repo.owner.received_events_url;
         delete repo.owner.url;
 
-        // clean links
         // clean links
         delete repo.svn_url
         delete repo.ssh_url
@@ -1174,51 +1268,7 @@ export const getGithubDataFromDb = async () => {
         return repo
       }) : [],
       repoBranches: branches?.rows[0]?.branches ? branches?.rows[0]?.branches : [],
-      pullRequests: pullRequests?.rows[0]?.pull_requests ? pullRequests?.rows[0]?.pull_requests?.map((prData: any) => {
-        return {
-          repo: prData.repo,
-          prs: prData.prs?.map((pr: any) => {
-
-            const analysis = pullRequestAnalysis?.rows?.find((analysis: any) => analysis.pr_id === pr.number)
-
-            // clean user data
-            delete pr.user.followers_url;
-            delete pr.user.following_url;
-            delete pr.user.gists_url;
-            delete pr.user.starred_url;
-            delete pr.user.subscriptions_url;
-            delete pr.user.organizations_url;
-            delete pr.user.repos_url;
-            delete pr.user.events_url;
-            delete pr.user.received_events_url;
-            delete pr.user.url;
-
-            delete pr.diff_url
-            delete pr.commits_url
-            delete pr.patch_url
-            delete pr.url
-            delete pr.statuses_url
-
-            delete pr.commits_url
-            delete pr.review_comments_url
-            delete pr.review_comment_url
-            delete pr.comments_url
-
-            //clean head, base and links
-            const head = pr.head
-            delete pr.head
-            delete pr.base;
-            delete pr._links;
-
-            pr.head = { repo: { name: head?.repo?.name }, ref: head?.ref }
-
-            return {
-              ...pr,
-              checks: analysis?.analysis ?? analyzePullRequestStatic(pr)
-            }
-          })
-        }
-      }) : [],
+      pullRequests: formattedPRs,
       users: users?.rows[0]?.users ? users?.rows[0]?.users?.map((user: any) => {
         delete user.followers_url;
         delete user.following_url;
@@ -1315,34 +1365,36 @@ export const addReviewToPullRequest = async (
 };
 
 export const forceReSync = async (resource: 'repositories' | 'pullRequests' | 'users' | 'branches') => {
-  const installation = await queryWParams(`SELECT * FROM github_data limit 1`, [])
+  const installation = await query(`SELECT * FROM github_data ORDER BY created_at DESC LIMIT 1`)
   const installationId = installation?.rows[0]?.installation_id
   const owner = installation?.rows[0]?.payload?.installation?.account?.login
 
   const githubToken = await getGithubInstallationToken(installationId)
 
   if (resource === 'pullRequests') {
+
+    await query(`DELETE FROM github_pull_requests`)
+
     const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1::integer limit 1`, [installationId]))?.rows[0]?.repositories
     if (allRepos) {
-      let allPullRequests: any[] = [];
-      // fetch all PRs for all repos
+      // Process repos in batches
       for (const repo of allRepos) {
         const prs = await listPullRequests(githubToken, repo.name, owner)
-        if (prs) {
-          allPullRequests.push({
-            repo: repo.name,
-            prs: prs
-          });
+        if (prs && prs.length > 0) {
+          console.log(`[FORCE_RESYNC] Syncing ${prs.length} PRs for ${repo.name}`)
+          
+          // Insert PRs in batches
+          for (const pr of prs) {
+            await queryWParams(
+              `INSERT INTO github_pull_requests (installation_id, repo, pr_id, pr_data) 
+               VALUES ($1, $2, $3, $4::jsonb)
+               ON CONFLICT ON CONSTRAINT github_pull_requests_pkey 
+               DO UPDATE SET pr_data = $4::jsonb, updated_at = NOW()`,
+              [installationId, repo.name, pr.number, JSON.stringify(pr)]
+            )
+          }
         }
       }
-      // Insert all PRs at once after collecting them
-      await queryWParams(
-        `INSERT INTO github_pull_requests (installation_id, pull_requests) 
-         VALUES ($1, $2::jsonb)
-         ON CONFLICT (installation_id) 
-         DO UPDATE SET pull_requests = $2::jsonb`,
-        [installationId, JSON.stringify(allPullRequests)]
-      )
     }
   }
 }
