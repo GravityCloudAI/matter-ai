@@ -530,6 +530,283 @@ const getPullRequestTemplate = async (token: string, repo: string, owner: string
   }
 }
 
+const addCommentToPullRequest = async (
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  comment: string
+) => {
+  try {
+    const octokit = new Octokit({
+      auth: token,
+      userAgent: "gravitonAI v0.1",
+    });
+
+    const response = await octokit.issues.createComment({
+      owner,
+      repo,
+      issue_number: prNumber,
+      body: comment,
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error("Error adding comment to PR:", error);
+    throw error;
+  }
+};
+
+const filterPRFiles = (files: any[]) => {
+  return files.filter((file: any) => {
+    if (!file?.filename) return false;
+
+    const skipPatterns = [
+      /package-lock\.json$/,
+      /package\.json$/,
+      /yarn\.lock$/,
+      /pnpm-lock\.yaml$/,
+      /dist\//,
+      /build\//,
+      /\.min\.js$/,
+      /\.min\.css$/
+    ];
+
+    return !skipPatterns.some(pattern => pattern.test(file.filename));
+  });
+};
+
+/**
+ * Processes AI analysis output by handling code suggestion blocks properly
+ * @param analysis The raw analysis string from the AI
+ * @returns Parsed content with code blocks properly restored
+ */
+const processAnalysisOutput = (analysis: string) => {
+  // Remove code suggestion blocks temporarily to allow JSON parsing
+  const contentWithoutSuggestions = analysis.replace(
+    /"body": "```suggestion[\s\S]*?```"/g,
+    () => `"body": "CODE_BLOCK_REMOVED"`
+  );
+
+  const parsedContent = JSON.parse(contentWithoutSuggestions);
+
+  // Extract all code blocks
+  const codeBlocks = [...analysis.matchAll(/"body": ("```suggestion[\s\S]*?```")/g)];
+  let codeBlockIndex = 0;
+
+  // Restore code blocks in codeChangeGeneration.reviewComments
+  if (parsedContent?.codeChangeGeneration?.reviewComments) {
+    parsedContent.codeChangeGeneration.reviewComments.forEach((comment: any) => {
+      if (comment.body === "CODE_BLOCK_REMOVED" && codeBlockIndex < codeBlocks.length) {
+        const cleanedCodeBlock = codeBlocks[codeBlockIndex][1]
+          .replace(/\n/g, "\\n")  // Escape newlines
+          .replace(/\t/g, "\\t")  // Escape tabs
+          .replace(/\r/g, "\\r");  // Escape carriage returns
+        comment.body = JSON.parse(cleanedCodeBlock);
+        codeBlockIndex++;
+      }
+    });
+  }
+
+  return parsedContent;
+};
+
+const handleReviewRequest = async (
+  githubToken: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  installationId: number,
+) => {
+  try {
+    // Add a comment acknowledging the request
+    await addCommentToPullRequest(
+      githubToken,
+      owner,
+      repo,
+      prNumber,
+      "I'm reviewing this PR now. I'll provide feedback shortly."
+    );
+
+    // Get PR details to analyze
+    const prDetails = await listPullRequests(githubToken, repo, owner, prNumber);
+
+    if (!prDetails || !prDetails[0]) {
+      await addCommentToPullRequest(
+        githubToken,
+        owner,
+        repo,
+        prNumber,
+        "I couldn't fetch the details of this PR. Please try again later."
+      );
+      return;
+    }
+
+    const prForAnalysis = {
+      title: prDetails[0].title,
+      body: prDetails[0].body,
+      changed_files: filterPRFiles(prDetails[0].changed_files),
+      requested_reviewers: prDetails[0].requested_reviewers
+    };
+
+    // Get PR template if it exists
+    const pullRequestTemplate = await getPullRequestTemplate(githubToken, repo, owner);
+
+    // Perform the analysis
+    const analysis = await analyzePullRequest(installationId, repo, prNumber, prForAnalysis, {
+      documentVector: null,
+      pullRequestTemplate: pullRequestTemplate
+    })
+
+    if (!analysis) {
+      await addCommentToPullRequest(
+        githubToken,
+        owner,
+        repo,
+        prNumber,
+        "I couldn't complete the analysis of this PR. Please try again later."
+      );
+      return;
+    }
+
+    // Process and store the analysis
+    const parsedContent = processAnalysisOutput(analysis);
+
+    // Submit the review
+    const reviewComments = parsedContent?.review?.reviewComments || [];
+    const codeChangeComments = parsedContent?.codeChangeGeneration?.reviewComments || [];
+
+    // Merge comments, prioritizing code change comments
+    const mergedComments = [
+      ...codeChangeComments,
+      ...reviewComments.filter((review: any) =>
+        !codeChangeComments.some((change: any) =>
+          change.path === review.path && change.position === review.position
+        )
+      )
+    ];
+
+    await addReviewToPullRequest(
+      githubToken,
+      owner,
+      repo,
+      prNumber,
+      parsedContent?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
+      parsedContent?.codeChangeGeneration?.reviewBody,
+      mergedComments
+    );
+
+  } catch (error) {
+    try {
+      await addCommentToPullRequest(
+        githubToken,
+        owner,
+        repo,
+        prNumber,
+        "I encountered an error while trying to review this PR. Please try again later."
+      );
+    } catch (commentError) {
+    }
+  }
+};
+
+// Function to handle summary requests
+const handleSummaryRequest = async (
+  githubToken: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  installationId: number,
+) => {
+  try {
+    // Add a comment acknowledging the request
+    await addCommentToPullRequest(
+      githubToken,
+      owner,
+      repo,
+      prNumber,
+      "I'm generating a summary for this PR. I'll post it shortly."
+    );
+
+    const prDetails = await listPullRequests(githubToken, repo, owner, prNumber);
+
+    if (!prDetails || !prDetails[0]) {
+      await addCommentToPullRequest(
+        githubToken,
+        owner,
+        repo,
+        prNumber,
+        "I couldn't fetch the details of this PR. Please try again later."
+      );
+      return;
+    }
+
+    const prForAnalysis = {
+      title: prDetails[0].title,
+      body: prDetails[0].body,
+      changed_files: filterPRFiles(prDetails[0].changed_files),
+      requested_reviewers: prDetails[0].requested_reviewers
+    };
+
+    // Get PR template if it exists
+    const pullRequestTemplate = await getPullRequestTemplate(githubToken, repo, owner);
+
+    // Perform the analysis
+    const analysis = await analyzePullRequest(installationId, repo, prNumber, prForAnalysis, {
+      documentVector: null,
+      pullRequestTemplate: pullRequestTemplate
+    })
+    
+    if (!analysis) {
+      await addCommentToPullRequest(
+        githubToken,
+        owner,
+        repo,
+        prNumber,
+        "I couldn't generate a summary for this PR. Please try again later."
+      );
+      return;
+    }
+
+    // Process and store the analysis
+    const parsedContent = processAnalysisOutput(analysis);
+
+    // Simply use the existing summary description
+    if (parsedContent?.summary?.description) {
+      await addCommentToPullRequest(
+        githubToken,
+        owner,
+        repo,
+        prNumber,
+        parsedContent.summary.description
+      );
+
+    } else {
+      await addCommentToPullRequest(
+        githubToken,
+        owner,
+        repo,
+        prNumber,
+        "I couldn't generate a summary for this PR. No summary data was available."
+      );
+    }
+
+  } catch (error) {
+    // Notify about the error
+    try {
+      await addCommentToPullRequest(
+        githubToken,
+        owner,
+        repo,
+        prNumber,
+        "I encountered an error while trying to generate a summary for this PR. Please try again later."
+      );
+    } catch (commentError) {
+      console.log("Failed to add error comment:", commentError);
+    }
+  }
+}
+
 const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 
   const installationId: number = githubPayload?.installation?.id
@@ -629,23 +906,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
           const prForAnalysis = {
             title: updatedPR[0].title,
             body: updatedPR[0].body,
-            changed_files: updatedPR[0].changed_files.filter((file: any) => {
-              if (!file?.filename) return false;
-
-              const skipPatterns = [
-                /package-lock\.json$/,
-                /package\.json$/,
-                /yarn\.lock$/,
-                /pnpm-lock\.yaml$/,
-                /dist\//,
-                /build\//,
-                /\.min\.js$/,
-                /\.min\.css$/
-              ];
-
-              // Return false if the filename matches any of the skip patterns
-              return !skipPatterns.some(pattern => pattern.test(file.filename));
-            }),
+            changed_files: filterPRFiles(updatedPR[0].changed_files),
             requested_reviewers: updatedPR[0].requested_reviewers
           };
 
@@ -668,8 +929,10 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 
           if (process.env.ENABLE_PR_REVIEW_COMMENT === "true") {
             try {
-              const reviewComments = analysis?.review?.reviewComments || [];
-              const codeChangeComments = analysis?.codeChangeGeneration?.reviewComments || [];
+              const parsedContent = processAnalysisOutput(analysis);
+
+              const reviewComments = parsedContent?.review?.reviewComments || [];
+              const codeChangeComments = parsedContent?.codeChangeGeneration?.reviewComments || [];
 
               // Keep codeChangeComments and only add reviewComments that don't have conflicting positions
               const mergedComments = [
@@ -686,14 +949,14 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
                 owner,
                 repo,
                 prNumber,
-                analysis?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
-                analysis?.codeChangeGeneration?.reviewBody,
+                parsedContent?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
+                parsedContent?.codeChangeGeneration?.reviewBody,
                 mergedComments)
 
               if (pullRequestTemplate) {
-                await updatePRDescription(githubToken, owner, repo, prNumber, analysis?.checklist?.checklistTemplate)
+                await updatePRDescription(githubToken, owner, repo, prNumber, parsedContent?.checklist?.checklistTemplate)
               } else {
-                await updatePRDescription(githubToken, owner, repo, prNumber, analysis?.summary?.description)
+                await updatePRDescription(githubToken, owner, repo, prNumber, parsedContent?.summary?.description)
               }
             } catch (error) {
               console.log("Error adding review to pull request:", error)
@@ -810,6 +1073,46 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
            DO UPDATE SET users = $2`,
           [installationId, JSON.stringify(users)]
         )
+      }
+    }
+  }
+
+  if (eventType === 'issue_comment') {
+    const action = eventPayload.action
+    const issue = eventPayload.issue
+    const comment = eventPayload.comment
+    const repo = eventPayload.repository.name
+
+    if (action === 'created') {
+      // Check if this is a PR comment
+      if (issue.pull_request) {
+        // Check for app mentions in the comment
+        const isMentioned = comment.body.includes('/ai');
+        const hasReviewCommand = comment.body.includes('review');
+        const hasSummaryCommand = comment.body.includes('summary');
+
+        if (isMentioned) {
+          if (hasReviewCommand) {
+            // Call the dedicated function to handle the review request
+            await handleReviewRequest(
+              githubToken,
+              owner,
+              repo,
+              issue.number,
+              installationId
+            );
+          } else if (hasSummaryCommand) {
+            // Call the dedicated function to handle the summary request
+            await handleSummaryRequest(
+              githubToken,
+              owner,
+              repo,
+              issue.number,
+              installationId
+            );
+          }
+        }
+
       }
     }
   }
