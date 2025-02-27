@@ -1,8 +1,22 @@
-# Matter
+# Matter AI
 
-![Matter Og Image](https://res.cloudinary.com/dor5uewzz/image/upload/v1740376446/og-image-matter_kfioxu.png)
+![Matter Og Image](https://res.cloudinary.com/dor5uewzz/image/upload/v1740649715/og-image-matter_lr7gsi.png)
 
 Matter is open-source AI Code Reviewer Agent. This enables developers to review code changes and provide feedback on the code.
+
+## Features
+
+### AI Generated Summaries
+- Automatically generates AI Summaries and updates the PR description.
+- If you are using any PR template, the PR template will be used and updated accordingly with summary.
+
+![Matter AI Generated Summary](https://res.cloudinary.com/dor5uewzz/image/upload/v1740649715/generate-ai-summary_fmzjie.png)
+
+### AI Review
+- Code quality and Bug fix recommendation in the PR
+- Code change suggestion patches in the PR
+
+![Matter AI Code Review](https://res.cloudinary.com/dor5uewzz/image/upload/v1740649715/generate-ai-review_mqz3gy.png)
 
 ### Supported Platforms
 - [X] Github
