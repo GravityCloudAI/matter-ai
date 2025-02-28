@@ -16,7 +16,7 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 ### AI Review
 - Code quality and Bug fix recommendation in the PR
 - Code change suggestion patches in the PR
-- - Generate static AI Review by using <kbd>/matter review</kbd> command in the PR.
+- Generate static AI Review by using <kbd>/matter review</kbd> command in the PR.
 
 ![Matter AI Code Review](https://res.cloudinary.com/dor5uewzz/image/upload/v1740649715/generate-ai-review_mqz3gy.png)
 
@@ -40,10 +40,10 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 
 ## Installation
 
-### Cloud Hosted
+### 1. Cloud Hosted
 - You can signup on the Cloud Hosted version here: https://console.gravitycloud.ai
 
-### Kubernetes
+### 2. Kubernetes
 
 #### Prerequisites
 1. Create an internal Github App for your Organization
@@ -54,7 +54,7 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 2. `helm repo update`
 3. `helm upgrade --install matter-ai gravity/gravity-matter -f matter-values.yaml -n matter-ai --create-namespace`
 
-### Local Installation
+### 3. Local Installation
 
 #### Prerequisites
 1. Node.js
