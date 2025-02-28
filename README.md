@@ -45,7 +45,7 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 ## Installation
 
 ### 1. Cloud Hosted
-- You can signup on the Cloud Hosted version here: https://console.gravitycloud.ai
+- You can signup on the Cloud Hosted version here: https://app.gravitycloud.ai
 
 ### 2. Kubernetes
 
