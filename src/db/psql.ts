@@ -45,13 +45,6 @@ export const init = async () => {
     )`)
 
     await client.query(`CREATE TABLE IF NOT EXISTS github_pull_requests (
-        installation_id INT PRIMARY KEY,
-        pull_requests JSONB,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`)
-
-    await client.query(`CREATE TABLE IF NOT EXISTS github_pull_requests (
         installation_id INTEGER NOT NULL,
         repo VARCHAR(255) NOT NULL,
         pr_id INTEGER NOT NULL,
