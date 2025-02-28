@@ -3,6 +3,7 @@
 ![GitHub Workflow Status (with event)](https://github.com/GravityCloudAI/matter-ai/actions/workflows/main.yml/badge.svg?branch=main)
 ![Docker Pulls](https://img.shields.io/docker/pulls/gravitycloud/matter.svg?maxAge=604800)
 [![GitHub License](https://img.shields.io/github/license/GravityCloudAI/matter-ai)](https://github.com/GravityCloudAI/matter/blob/matter-ai/LICENSE)
+![Security Compliance](https://img.shields.io/badge/Compliance-SOC2_Type_II-818aff)
 
 ![Matter Og Image](https://res.cloudinary.com/dor5uewzz/image/upload/v1740649715/og-image-matter_lr7gsi.png)
 
@@ -34,13 +35,20 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 
 | Feature | Status | Pricing |
 |---------|--------|---------|
-| AI Pull Request Summary | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
-| AI Code Review Comments | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
-| AI Code Suggestions | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
-| AI Code quality score and Suggestions | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
-| AI Pull Request Checklist and Suggestions | ✅ | <kbd>Free</kbd> / <kbd>Self Hosted</kbd> |
-| Internal Documentation Support | ✅ | <kbd>Paid</kbd> / <kbd>Enterprise</kbd> |
-| Generate AI Release Notes | ✅ | <kbd>Paid</kbd> / <kbd>Enterprise</kbd> |
+| AI Pull Request Summary | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
+| AI Code Review Comments | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
+| AI Code Suggestions | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
+| AI Code quality score and Suggestions | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
+| AI Pull Request Checklist and Suggestions | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
+| Internal Documentation Support | ✅ | ![Paid Plan](https://img.shields.io/badge/Paid_/_Enterprise-818aff) |
+| Generate AI Release Notes | ✅ | ![Paid Plan](https://img.shields.io/badge/Paid_/_Enterprise-818aff) |
+| Generate AI Security Vulnerability | ✅ | ![Paid Plan](https://img.shields.io/badge/Paid_/_Enterprise-818aff) |
+| Generate AI Tests | ✅ | ![Paid Plan](https://img.shields.io/badge/Paid_/_Enterprise-818aff) |
+
+## Differentiators
+1. 1-click installation for all(or selected) org-level repositories. No need to integrate for each one.
+2. Runs a stack of generation from Summary, Reviews, Bugs, Security and Tests together.
+3. Day-0 ready self-hosted Helm Charts.
 
 ## Installation
 
