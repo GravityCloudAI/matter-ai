@@ -1,5 +1,9 @@
 # Matter AI
 
+![GitHub Workflow Status (with event)](https://github.com/GravityCloudAI/matter-ai/actions/workflows/main.yml/badge.svg?branch=main)
+![Docker Pulls](https://img.shields.io/docker/pulls/gravitycloud/matter.svg?maxAge=604800)
+[![GitHub License](https://img.shields.io/github/license/GravityCloudAI/matter-ai)](https://github.com/GravityCloudAI/matter/blob/matter-ai/LICENSE)
+
 ![Matter Og Image](https://res.cloudinary.com/dor5uewzz/image/upload/v1740649715/og-image-matter_lr7gsi.png)
 
 Matter is open-source AI Code Reviewer Agent. This enables developers to review code changes and provide feedback on the code.
