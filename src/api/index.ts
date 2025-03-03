@@ -49,7 +49,14 @@ export default function api(app: Hono) {
     }
   })
 
-  app.get('/llmLogs', authMiddleware, async (c) => {
+  app.get('/llmLogs', async (c) => {
+
+    // check if the param is apiKey
+    const apiKey = c.req.query('apiKey')
+    if (apiKey !== process.env.GRAVITY_API_KEY) {
+      return c.json({ error: 'Unauthorized' }, 401)
+    }
+
     const logs = await getLogsFromDb()
 
     const html = `

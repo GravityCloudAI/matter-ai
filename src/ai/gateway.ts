@@ -30,7 +30,6 @@ export class AIGateway {
       case 'anthropic':
         this.client = new Anthropic({
           apiKey: config.apiKey.trim(),
-          baseURL: this.getBaseURL(),
         });
         break;
       case 'gemini':
@@ -41,20 +40,7 @@ export class AIGateway {
       default:
         this.client = new OpenAI({
           apiKey: config.apiKey.trim(),
-          baseURL: this.getBaseURL(),
         });
-    }
-  }
-
-  private getBaseURL(): string {
-    switch (this.config.provider) {
-      case 'anthropic':
-        return 'https://api.anthropic.com/v1';
-      case 'gemini':
-        return 'https://generativelanguage.googleapis.com/v1';
-      case 'openai':
-      default:
-        return this.config.endpoint || 'https://api.openai.com/v1';
     }
   }
 
@@ -64,10 +50,14 @@ export class AIGateway {
         return this.client.messages.create({
           model: this.config.model,
           system: prompt.systemPrompt,
+          max_tokens: 8096,
+          temperature: 0.6,
+          top_p: 0.1,
+          stream: false,
+          top_k: 0,
           messages: [
             { role: 'user', content: prompt.userPrompt }
-          ],
-          response_format: { type: "json" } // Claude's JSON format parameter
+          ]
         });
       case 'gemini':
         // Implement Gemini API call
@@ -76,6 +66,7 @@ export class AIGateway {
       default:
         return this.client.chat.completions.create({
           model: this.config.model,
+          max_tokens: 8096,
           messages: [
             { role: 'system', content: prompt.systemPrompt },
             { role: 'user', content: prompt.userPrompt },

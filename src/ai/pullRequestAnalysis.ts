@@ -47,7 +47,13 @@ export const analyzePullRequest = async (installationId: number, repo: string, p
         userPrompt: userPrompt
     });
 
-    const response = analysis?.choices[0]?.message?.content;
+    let response = null;
+
+    if (process.env.AI_PROVIDER === 'anthropic') {
+        response = analysis?.content[0]?.text;
+    } else {
+        response = analysis?.choices[0]?.message?.content;
+    }
 
     if (!response) {
         console.log('No response from AI');
