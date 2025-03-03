@@ -576,41 +576,6 @@ const filterPRFiles = (files: any[]) => {
   });
 };
 
-/**
- * Processes AI analysis output by handling code suggestion blocks properly
- * @param analysis The raw analysis string from the AI
- * @returns Parsed content with code blocks properly restored
- */
-const processAnalysisOutput = (analysis: string) => {
-  // Remove code suggestion blocks temporarily to allow JSON parsing
-  const contentWithoutSuggestions = analysis.replace(
-    /"body": "```suggestion[\s\S]*?```"/g,
-    () => `"body": "CODE_BLOCK_REMOVED"`
-  );
-
-  const parsedContent = JSON.parse(contentWithoutSuggestions);
-
-  // Extract all code blocks
-  const codeBlocks = [...analysis.matchAll(/"body": ("```suggestion[\s\S]*?```")/g)];
-  let codeBlockIndex = 0;
-
-  // Restore code blocks in codeChangeGeneration.reviewComments
-  if (parsedContent?.codeChangeGeneration?.reviewComments) {
-    parsedContent.codeChangeGeneration.reviewComments.forEach((comment: any) => {
-      if (comment.body === "CODE_BLOCK_REMOVED" && codeBlockIndex < codeBlocks.length) {
-        const cleanedCodeBlock = codeBlocks[codeBlockIndex][1]
-          .replace(/\n/g, "\\n")  // Escape newlines
-          .replace(/\t/g, "\\t")  // Escape tabs
-          .replace(/\r/g, "\\r");  // Escape carriage returns
-        comment.body = JSON.parse(cleanedCodeBlock);
-        codeBlockIndex++;
-      }
-    });
-  }
-
-  return parsedContent;
-};
-
 const handleReviewRequest = async (
   githubToken: string,
   owner: string,
@@ -670,11 +635,10 @@ const handleReviewRequest = async (
     }
 
     // Process and store the analysis
-    const parsedContent = processAnalysisOutput(analysis);
 
     // Submit the review
-    const reviewComments = parsedContent?.review?.reviewComments || [];
-    const codeChangeComments = parsedContent?.codeChangeGeneration?.reviewComments || [];
+    const reviewComments = analysis?.review?.reviewComments || [];
+    const codeChangeComments = analysis?.codeChangeGeneration?.reviewComments || [];
 
     // Merge comments, prioritizing code change comments
     const mergedComments = [
@@ -691,8 +655,8 @@ const handleReviewRequest = async (
       owner,
       repo,
       prNumber,
-      parsedContent?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
-      parsedContent?.codeChangeGeneration?.reviewBody,
+      analysis?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
+      analysis?.codeChangeGeneration?.reviewBody,
       mergedComments
     );
 
@@ -768,17 +732,14 @@ const handleSummaryRequest = async (
       return;
     }
 
-    // Process and store the analysis
-    const parsedContent = processAnalysisOutput(analysis);
-
     // Simply use the existing summary description
-    if (parsedContent?.summary?.description) {
+    if (analysis?.summary?.description) {
       await addCommentToPullRequest(
         githubToken,
         owner,
         repo,
         prNumber,
-        parsedContent.summary.description
+        analysis.summary.description
       );
 
     } else {
@@ -929,10 +890,8 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 
           if (process.env.ENABLE_PR_REVIEW_COMMENT === "true") {
             try {
-              const parsedContent = processAnalysisOutput(analysis);
-
-              const reviewComments = parsedContent?.review?.reviewComments || [];
-              const codeChangeComments = parsedContent?.codeChangeGeneration?.reviewComments || [];
+              const reviewComments = analysis?.review?.reviewComments || [];
+              const codeChangeComments = analysis?.codeChangeGeneration?.reviewComments || [];
 
               // Keep codeChangeComments and only add reviewComments that don't have conflicting positions
               const mergedComments = [
@@ -949,14 +908,14 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
                 owner,
                 repo,
                 prNumber,
-                parsedContent?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
-                parsedContent?.codeChangeGeneration?.reviewBody,
+                analysis?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
+                analysis?.codeChangeGeneration?.reviewBody,
                 mergedComments)
 
               if (pullRequestTemplate) {
-                await updatePRDescription(githubToken, owner, repo, prNumber, parsedContent?.checklist?.checklistTemplate)
+                await updatePRDescription(githubToken, owner, repo, prNumber, analysis?.checklist?.checklistTemplate)
               } else {
-                await updatePRDescription(githubToken, owner, repo, prNumber, parsedContent?.summary?.description)
+                await updatePRDescription(githubToken, owner, repo, prNumber, analysis?.summary?.description)
               }
             } catch (error) {
               console.log("Error adding review to pull request:", error)
