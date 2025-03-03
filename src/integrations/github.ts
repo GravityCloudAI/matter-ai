@@ -792,7 +792,7 @@ const handleSummaryRequest = async (
     }
 
   } catch (error) {
-    // Notify about the error
+    console.log("Failed to generate summary:", error);
     try {
       await addCommentToPullRequest(
         githubToken,

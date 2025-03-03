@@ -2,6 +2,7 @@ import * as dotenv from 'dotenv'
 dotenv.config()
 import OpenAI from 'openai';
 import { query } from '../db/psql.js';
+import Anthropic from '@anthropic-ai/sdk';
 
 export interface AIConfig {
   endpoint?: string;
@@ -16,7 +17,7 @@ export interface AIPrompt {
 }
 
 export class AIGateway {
-  private client: OpenAI;
+  private client: OpenAI | Anthropic | any;
   private config: AIConfig;
 
   constructor(config: AIConfig) {
@@ -24,10 +25,25 @@ export class AIGateway {
       throw new Error('API key is required but was not provided');
     }
     this.config = config;
-    this.client = new OpenAI({
-      apiKey: config.apiKey.trim(),
-      baseURL: this.getBaseURL(),
-    });
+    
+    switch (this.config.provider) {
+      case 'anthropic':
+        this.client = new Anthropic({
+          apiKey: config.apiKey.trim(),
+          baseURL: this.getBaseURL(),
+        });
+        break;
+      case 'gemini':
+        // Initialize Gemini client
+        this.client = null; // Replace with actual Gemini client initialization
+        break;
+      case 'openai':
+      default:
+        this.client = new OpenAI({
+          apiKey: config.apiKey.trim(),
+          baseURL: this.getBaseURL(),
+        });
+    }
   }
 
   private getBaseURL(): string {
@@ -43,14 +59,30 @@ export class AIGateway {
   }
 
   async createCompletion(prompt: AIPrompt) {
-    return this.client.chat.completions.create({
-      model: this.config.model,
-      messages: [
-        { role: 'system', content: prompt.systemPrompt },
-        { role: 'user', content: prompt.userPrompt },
-      ],
-      response_format: { type: "json_object" }
-    });
+    switch (this.config.provider) {
+      case 'anthropic':
+        return this.client.messages.create({
+          model: this.config.model,
+          system: prompt.systemPrompt,
+          messages: [
+            { role: 'user', content: prompt.userPrompt }
+          ],
+          response_format: { type: "json" } // Claude's JSON format parameter
+        });
+      case 'gemini':
+        // Implement Gemini API call
+        throw new Error('Gemini implementation not completed');
+      case 'openai':
+      default:
+        return this.client.chat.completions.create({
+          model: this.config.model,
+          messages: [
+            { role: 'system', content: prompt.systemPrompt },
+            { role: 'user', content: prompt.userPrompt },
+          ],
+          response_format: { type: "json_object" }
+        });
+    }
   }
 }
 

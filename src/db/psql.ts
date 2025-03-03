@@ -74,7 +74,6 @@ export const init = async () => {
 
 const getClientConnection = async () => {
     try {
-        console.log("[GET_CLIENT_CONNECTION] Getting client connection")
         const client = await pool.connect()
         return client
     } catch (error) {
