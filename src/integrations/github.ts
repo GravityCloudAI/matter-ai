@@ -367,7 +367,7 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
         if (page > 1) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
-        
+
         const response = await octokit.pulls.list({
           owner,
           repo,
@@ -379,20 +379,20 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
         console.log("[PULL_REQUEST] Found", response.data.length, "PRs for", repo)
 
         if (response.data.length === 0) break;
-        
+
         // Filter out PRs older than 3 months
         const recentPRs = response.data.filter(pr => {
           const updatedAt = new Date(pr.updated_at);
           return updatedAt >= threeMonthsAgo;
         });
-        
+
         console.log(`[PULL_REQUEST] Keeping ${recentPRs.length} of ${response.data.length} PRs (filtered older than 3 months)`);
-        
+
         allPullRequests = [...allPullRequests, ...recentPRs];
-        
+
         // If we got fewer PRs than requested or all PRs in this page were filtered out, we've hit the end
         if (response.data.length < 100) break;
-        
+
         page++;
       } catch (error: any) {
         if (error.status === 403) {
@@ -415,14 +415,14 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
 
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-    
+
     // Process PRs in batches to respect rate limits
     const batchSize = 5; // Process 5 PRs at a time
     const pullRequestsWithFiles = [];
-    
+
     for (let i = 0; i < allPullRequests.length; i += batchSize) {
       const batch = allPullRequests.slice(i, Math.min(i + batchSize, allPullRequests.length));
-      
+
       // Process batch with a small delay between each PR
       const batchResults = await Promise.all(
         batch.map(async (pr: any, index: number) => {
@@ -430,7 +430,7 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
           if (index > 0) {
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
-          
+
           try {
             // Skip fetching files for PRs older than one week
             const prUpdatedAt = new Date(pr.updated_at);
@@ -440,7 +440,7 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
                 changed_files: []
               };
             }
-            
+
             const { data: files } = await octokit.pulls.listFiles({
               owner,
               repo,
@@ -477,9 +477,9 @@ const listPullRequests = async (token: string, repo: string, owner: string, prNu
           }
         })
       );
-      
+
       pullRequestsWithFiles.push(...batchResults);
-      
+
       // Add a delay between batches to avoid rate limiting
       if (i + batchSize < allPullRequests.length) {
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -720,7 +720,7 @@ const handleSummaryRequest = async (
       documentVector: null,
       pullRequestTemplate: pullRequestTemplate
     })
-    
+
     if (!analysis) {
       await addCommentToPullRequest(
         githubToken,
@@ -863,6 +863,12 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
           [installationId, repo, prNumber, JSON.stringify(updatedPR[0]), prAction === 'closed' ? 'closed' : 'open']
         )
 
+        // check if the pr is draft and if it is, skip the review
+        if (updatedPR[0].draft) {
+          console.log("[PULL_REQUEST] Pull request is a draft, skipping review")
+          return
+        }
+
         if (prAction === 'opened' || prAction === 'edited' || prAction === 'synchronize') {
           const prForAnalysis = {
             title: updatedPR[0].title,
@@ -941,7 +947,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
         for (const repo of allRepos) {
           const prs = await listPullRequests(githubToken, repo.name, owner)
           console.log("[INSTALLATION] Found", prs?.length, "PRs for", repo.name)
-          
+
           if (prs && prs.length > 0) {
             // Insert PRs in batches
             for (const pr of prs) {
@@ -1079,23 +1085,16 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
 
 export const getGithubDataFromDb = async () => {
   try {
-    console.log("[GET_GITHUB_DATA_FROM_DB] Getting data from db")
     const githubData = await query(`SELECT * FROM github_data ORDER BY created_at DESC LIMIT 1`)
     const installationId = githubData?.rows[0]?.installation_id
-
-    console.log("[GET_GITHUB_DATA_FROM_DB] Getting repositories")
     const repositories = await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId])
-    console.log("[GET_GITHUB_DATA_FROM_DB] Getting pull requests")
     const pullRequests = await queryWParams(`
       SELECT repo, pr_id, pr_data, pr_status, updated_at 
       FROM github_pull_requests 
       WHERE installation_id = $1 AND pr_status != 'deleted'
       ORDER BY updated_at DESC`, [installationId])
-    console.log("[GET_GITHUB_DATA_FROM_DB] Getting users")
     const users = await queryWParams(`SELECT * FROM github_users WHERE installation_id = $1`, [installationId])
-    console.log("[GET_GITHUB_DATA_FROM_DB] Getting branches")
     const branches = await queryWParams(`SELECT * FROM github_branches WHERE installation_id = $1`, [installationId])
-    console.log("[GET_GITHUB_DATA_FROM_DB] Getting pull request analysis")
     const pullRequestAnalysis = await queryWParams(`SELECT * FROM github_pull_request_analysis WHERE installation_id = $1`, [installationId])
 
     // Group PRs by repo
@@ -1278,10 +1277,8 @@ export const addReviewToPullRequest = async (
       pull_number: prNumber,
     });
 
-    // Find any pending reviews
     const pendingReviews = reviews.filter(review => review.state === 'PENDING' && review?.user?.login === `${process.env.GITHUB_APP_NAME}[bot]`);
 
-    // Dismiss any pending reviews
     for (const review of pendingReviews) {
       try {
         await octokit.pulls.deletePendingReview({
@@ -1296,7 +1293,6 @@ export const addReviewToPullRequest = async (
       }
     }
 
-    // Submit review directly with all data
     const response = await octokit.pulls.createReview({
       owner,
       repo,
@@ -1336,13 +1332,11 @@ export const forceReSync = async (resource: 'repositories' | 'pullRequests' | 'u
 
     const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1::integer limit 1`, [installationId]))?.rows[0]?.repositories
     if (allRepos) {
-      // Process repos in batches
       for (const repo of allRepos) {
         const prs = await listPullRequests(githubToken, repo.name, owner)
         if (prs && prs.length > 0) {
           console.log(`[FORCE_RESYNC] Syncing ${prs.length} PRs for ${repo.name}`)
-          
-          // Insert PRs in batches
+
           for (const pr of prs) {
             await queryWParams(
               `INSERT INTO github_pull_requests (installation_id, repo, pr_id, pr_data) 
