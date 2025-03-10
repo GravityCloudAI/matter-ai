@@ -25,6 +25,12 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 
 ![Matter AI Code Review](https://res.cloudinary.com/dor5uewzz/image/upload/v1740649715/generate-ai-review_mqz3gy.png)
 
+### AI Explanation
+- Get a quick explanation of the Pull Request
+- Use the command <kbd>/matter explain</kbd>
+
+![Matter AI Explanation](https://res.cloudinary.com/dor5uewzz/image/upload/v1741598521/generate-ai-explain_ceovuu.png)
+
 ### Supported Platforms
 - [X] Github
 - [ ] Gitlab
@@ -38,8 +44,8 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 | AI Pull Request Summary | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
 | AI Code Review Comments | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
 | AI Code Suggestions | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
-| AI Code quality score and Suggestions | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
-| AI Pull Request Checklist and Suggestions | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
+| AI PR Explanation | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
+| AI Code Quality score and Suggestions | ✅ | ![Free Plan](https://img.shields.io/badge/Free_/_Self_Hosted-3AFFA3) |
 | Internal Documentation Support | ✅ | ![Paid Plan](https://img.shields.io/badge/Paid_/_Enterprise-818aff) |
 | Generate AI Release Notes | ✅ | ![Paid Plan](https://img.shields.io/badge/Paid_/_Enterprise-818aff) |
 | Generate AI Security Vulnerability | ✅ | ![Paid Plan](https://img.shields.io/badge/Paid_/_Enterprise-818aff) |
