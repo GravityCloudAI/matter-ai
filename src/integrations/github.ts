@@ -5,7 +5,7 @@ import { Octokit } from "@octokit/rest";
 import { Webhooks } from '@octokit/webhooks';
 import { Hono } from 'hono';
 import { query, queryWParams } from "../db/psql.js";
-import { analyzePullRequest, analyzePullRequestStatic } from "../ai/pullRequestAnalysis.js";
+import { analyzePullRequest, analyzePullRequestStatic, getPRExplanation } from "../ai/pullRequestAnalysis.js";
 
 if (!process.env.GITHUB_WEBHOOK_SECRET) {
   throw new Error('GitHub webhook secret is not set');
@@ -683,7 +683,6 @@ const handleSummaryRequest = async (
   installationId: number,
 ) => {
   try {
-    // Add a comment acknowledging the request
     await addCommentToPullRequest(
       githubToken,
       owner,
@@ -765,6 +764,56 @@ const handleSummaryRequest = async (
     } catch (commentError) {
       console.log("Failed to add error comment:", commentError);
     }
+  }
+}
+
+export const handleExplainRequest = async (
+  githubToken: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  installationId: number,
+) => {
+  try {
+    await addCommentToPullRequest(
+      githubToken,
+      owner,
+      repo,
+      prNumber,
+      "I'm generating a detailed explanation for this PR. I'll post it shortly."
+    );
+
+    const prDetails = await listPullRequests(githubToken, repo, owner, prNumber);
+
+    if (!prDetails || !prDetails[0]) {
+      await addCommentToPullRequest(
+        githubToken,
+        owner,
+        repo,
+        prNumber,
+        "I couldn't fetch the details of this PR. Please try again later."
+      );
+      return;
+    }
+
+    const prForAnalysis = {
+      title: prDetails[0].title,
+      body: prDetails[0].body,
+      changed_files: filterPRFiles(prDetails[0].changed_files),
+      requested_reviewers: prDetails[0].requested_reviewers
+    };
+    const explanationRes: any = await getPRExplanation(installationId, repo, prNumber, prForAnalysis);
+
+    const explanationObj: any = JSON.parse(explanationRes);
+    await addCommentToPullRequest(
+      githubToken,
+      owner,
+      repo,
+      prNumber,
+      explanationObj?.explanation || "I couldn't generate a detailed explanation for this PR. Please try again later."
+    );
+  } catch (error) {
+    console.log(`Error handling explain request for PR #${prNumber}:`, error);
   }
 }
 
@@ -1055,6 +1104,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
         const isMentioned = comment.body.includes('/ai');
         const hasReviewCommand = comment.body.includes('review');
         const hasSummaryCommand = comment.body.includes('summary');
+        const hasExplainCommand = comment.body.includes('explain');
 
         if (isMentioned) {
           if (hasReviewCommand) {
@@ -1069,6 +1119,15 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
           } else if (hasSummaryCommand) {
             // Call the dedicated function to handle the summary request
             await handleSummaryRequest(
+              githubToken,
+              owner,
+              repo,
+              issue.number,
+              installationId
+            );
+          } else if (hasExplainCommand) {
+            // Pass the comment ID to the handler
+            await handleExplainRequest(
               githubToken,
               owner,
               repo,
