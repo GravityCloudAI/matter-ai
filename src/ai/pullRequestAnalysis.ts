@@ -67,7 +67,6 @@ export const analyzePullRequest = async (installationId: number, repo: string, p
     );
 
     try {
-
         const contentWithoutSuggestions = response.replace(
             /"body": "```suggestion[\s\S]*?```"/g,
             () => `"body": "CODE_BLOCK_REMOVED"`
@@ -97,6 +96,44 @@ export const analyzePullRequest = async (installationId: number, repo: string, p
         return null;
     }
 };
+
+export const getPRExplanation = async (installationId: number, repo: string, prId: number, prData: any) => {
+    const prompt = await getPrompt("pull-request-explanation")
+    let userPrompt = prompt.user.replace('{{prData}}', JSON.stringify(prData));
+
+
+    const analysis = await aiGateway.createCompletion({
+        systemPrompt: prompt.system,
+        userPrompt: userPrompt
+    });
+
+    let response = null;
+
+    if (process.env.AI_PROVIDER === 'anthropic') {
+        response = analysis?.content[0]?.text;
+    } else {
+        response = analysis?.choices[0]?.message?.content;
+    }
+
+    if (!response) {
+        console.log('No response from AI');
+        return null;
+    }
+
+    await queryWParams(
+        `INSERT INTO llm_logs (installation_id, repo, pr_id, request, response) 
+         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)`,
+        [installationId, repo, prId, JSON.stringify(prompt), JSON.stringify(response)]
+    );
+
+    try {
+        const parsedContent = JSON.parse(response);
+        return parsedContent?.explanation || null;
+    } catch (error) {
+        console.log('Error parsing response:', error);
+        return null;
+    }
+}
 
 /** 
  * Below is the static analysis for the old Pull Requests
