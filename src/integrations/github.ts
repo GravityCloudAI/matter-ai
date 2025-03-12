@@ -968,7 +968,7 @@ const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
                 mergedComments)
 
               if (pullRequestTemplate) {
-                await updatePRDescription(githubToken, owner, repo, prNumber, analysis?.checklist?.checklistTemplate)
+                await updatePRDescription(githubToken, owner, repo, prNumber, analysis?.checklist?.completedChecklist)
               } else {
                 await updatePRDescription(githubToken, owner, repo, prNumber, analysis?.summary?.description)
               }
