@@ -1,3 +1,9 @@
 node_modules/
+dist/
+
+tests/
+
 ./env
+./env.example
+./git
 .github/
