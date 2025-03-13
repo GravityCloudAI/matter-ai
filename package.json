@@ -6,7 +6,7 @@
   "license": "MIT",
   "version": "0.1.5",
   "scripts": {
-    "start": "cross-env NODE_OPTIONS='--enable-source-maps=false' node dist/index.js",
+    "start": "node dist/index.js",
     "build": "tsc",
     "dev": "cross-env tsx watch src/index.ts"
   },
