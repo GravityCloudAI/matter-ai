@@ -65,6 +65,16 @@ export const init = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`)
 
+    await client.query(`CREATE TABLE IF NOT EXISTS github_pull_request_analysis (
+        installation_id INTEGER NOT NULL,
+        repo TEXT NOT NULL,
+        pr_id INTEGER NOT NULL,
+        analysis JSONB NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (installation_id, repo, pr_id)
+    )`)
+
     await client.query(`CREATE INDEX IF NOT EXISTS idx_github_pull_requests_installation_id ON github_pull_requests(installation_id);`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_github_pull_requests_repo ON github_pull_requests(repo);`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_github_pull_requests_updated_at ON github_pull_requests(updated_at);`)

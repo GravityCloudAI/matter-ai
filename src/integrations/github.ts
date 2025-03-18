@@ -1153,7 +1153,6 @@ export const getGithubDataFromDb = async () => {
       WHERE installation_id = $1 AND pr_status != 'deleted'
       ORDER BY updated_at DESC`, [installationId])
     const users = await queryWParams(`SELECT * FROM github_users WHERE installation_id = $1`, [installationId])
-    const branches = await queryWParams(`SELECT * FROM github_branches WHERE installation_id = $1`, [installationId])
     const pullRequestAnalysis = await queryWParams(`SELECT * FROM github_pull_request_analysis WHERE installation_id = $1`, [installationId])
 
     // Group PRs by repo
