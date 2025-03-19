@@ -1283,7 +1283,6 @@ export const getGithubDataFromDb = async () => {
 
         return repo
       }) : [],
-      repoBranches: branches?.rows[0]?.branches ? branches?.rows[0]?.branches : [],
       pullRequests: formattedPRs,
       users: users?.rows[0]?.users ? users?.rows[0]?.users?.map((user: any) => {
         delete user.followers_url;
