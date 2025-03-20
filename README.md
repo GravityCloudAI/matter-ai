@@ -1,12 +1,40 @@
-# Matter AI
+<div align="center">
+  <a href="https://matterai.dev">
+    <img
+      src="https://matterai.dev/favicon.png"
+      alt="Matter AI Logo"
+      height="64"
+    />
+  </a>
+  <br />
+  <p>
+    <h3>
+      <b>
+        Matter AI
+      </b>
+    </h3>
+  </p>
+  <p>
+    <b>
+      Release Code with Confidence. Everytime.
+    </b>
+  </p>
+  <p>
 
 ![GitHub Workflow Status (with event)](https://github.com/GravityCloudAI/matter-ai/actions/workflows/main.yml/badge.svg?branch=main)
 ![Docker Pulls](https://img.shields.io/docker/pulls/gravitycloud/matter.svg?maxAge=604800)
 [![GitHub License](https://img.shields.io/github/license/GravityCloudAI/matter-ai)](https://github.com/GravityCloudAI/matter/blob/matter-ai/LICENSE)
 ![Security Compliance](https://img.shields.io/badge/Compliance-SOC2_Type_II-818aff)
+![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen?logo=github) 
+[![Tweet](https://img.shields.io/twitter/url?url=https%3A%2F%2Fmatterai.dev%2F)](https://twitter.com/intent/tweet?url=&text=Check%20out%20%40matteraidev)
 
 ![Matter Og Image](https://res.cloudinary.com/dor5uewzz/image/upload/v1740649715/og-image-matter_lr7gsi.png)
 
+
+  </p>
+</div>
+
+# Matter AI
 Matter is open-source AI Code Reviewer Agent. This enables developers to review code changes and provide feedback on the code.
 
 ## Features
