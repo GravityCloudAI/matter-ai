@@ -28,7 +28,7 @@
 ![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen?logo=github) 
 [![Tweet](https://img.shields.io/twitter/url?url=https%3A%2F%2Fmatterai.dev%2F)](https://twitter.com/intent/tweet?url=&text=Check%20out%20%40matteraidev)
 
-![Matter Og Image](https://res.cloudinary.com/dor5uewzz/image/upload/v1740649715/og-image-matter_lr7gsi.png)
+![Matter Og Image](https://res.cloudinary.com/dor5uewzz/image/upload/v1742408026/og-image-matter_qisnai.png)
 
 
   </p>
