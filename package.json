@@ -4,7 +4,7 @@
   "repository": "https://github.com/GravityCloudAI/matter",
   "author": "Vatsal <vatsal@gravitycloud.ai>",
   "license": "MIT",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "scripts": {
     "start": "node dist/index.js",
     "build": "tsc",

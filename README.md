@@ -89,16 +89,18 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 ### 1. Cloud Hosted
 - You can signup on the Cloud Hosted version here: https://app.gravitycloud.ai
 
-### 2. Kubernetes
+### 2. Docker
 
 #### Prerequisites
-1. Create an internal Github App for your Organization
-2. Fill the required values in the `matter-values.yaml` file. You can get the template here: [https://github.com/GravityCloudAI/helm/blob/main/charts/gravity-matter/values.yaml](https://github.com/GravityCloudAI/helm/blob/main/charts/gravity-matter/values.yaml)
+1. Generate a Github Personal Access Token(Classic) here: https://github.com/settings/tokens/new
 
-#### Helm Chart
-1. `helm repo add gravity https://gravitycloudai.github.io/helm`
-2. `helm repo update`
-3. `helm upgrade --install matter-ai gravity/gravity-matter -f matter-values.yaml -n matter-ai --create-namespace`
+#### Steps
+1. Download the docker-compose.yaml file from here: [https://github.com/GravityCloudAI/matter/blob/main/docker-compose.yaml](https://github.com/GravityCloudAI/matter/blob/main/docker-compose.yaml)
+2. Update the ENV for the backend service in the docker-compose.yaml file. You can get your Gravity API key here: https://app.matterai.dev/settings
+3. Run `docker compose up -d`
+4. The app will start syncing with your Github Repositories and store the data.
+5. Create a new PR or update a PR to see the AI analysis.
+6. You can connect your hosted backend URL also in https://app.matterai.dev/home?tab=Settings to view the PRs in the UI. 
 
 ### 3. Local Installation
 

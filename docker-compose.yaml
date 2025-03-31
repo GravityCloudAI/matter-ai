@@ -18,6 +18,7 @@ services:
       - AI_PROVIDER=openai
       - ENABLE_PR_REVIEW_COMMENT=true
       - ENABLE_PR_DESCRIPTION=true
+      - GRAVITY_API_KEY=<gravity-api-key>
     depends_on:
       - postgres
     networks:
