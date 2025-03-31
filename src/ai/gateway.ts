@@ -1,8 +1,9 @@
-import * as dotenv from 'dotenv'
-dotenv.config()
-import OpenAI from 'openai';
-import { query } from '../db/psql.js';
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import axios from 'axios';
+import * as dotenv from 'dotenv';
+import OpenAI from 'openai';
+dotenv.config()
 
 export interface AIConfig {
   endpoint?: string;
@@ -25,7 +26,7 @@ export class AIGateway {
       throw new Error('API key is required but was not provided');
     }
     this.config = config;
-    
+
     switch (this.config.provider) {
       case 'anthropic':
         this.client = new Anthropic({
@@ -33,8 +34,7 @@ export class AIGateway {
         });
         break;
       case 'gemini':
-        // Initialize Gemini client
-        this.client = null; // Replace with actual Gemini client initialization
+        this.client = new GoogleGenerativeAI(config.apiKey.trim());
         break;
       case 'openai':
       default:
@@ -60,8 +60,23 @@ export class AIGateway {
           ]
         });
       case 'gemini':
-        // Implement Gemini API call
-        throw new Error('Gemini implementation not completed');
+        try {
+          const geminiModel = this.client.getGenerativeModel({ model: this.config.model });
+          const result = await geminiModel.generateContent({
+            contents: [
+              { role: 'user', parts: [{ text: prompt.systemPrompt + '\n\n' + prompt.userPrompt }] }
+            ],
+            generationConfig: {
+              temperature: 0.6,
+              topP: 0.1,
+              maxOutputTokens: 8096,
+            }
+          });
+          return result.response;
+        } catch (error) {
+          console.error('Gemini API error:', error);
+          throw error;
+        }
       case 'openai':
       default:
         return this.client.chat.completions.create({
@@ -75,9 +90,4 @@ export class AIGateway {
         });
     }
   }
-}
-
-export const getLogsFromDb = async () => {
-  const logs = await query(`SELECT * FROM llm_logs ORDER BY created_at DESC`)
-  return logs?.rows
 }

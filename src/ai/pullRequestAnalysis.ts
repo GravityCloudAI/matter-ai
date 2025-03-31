@@ -15,23 +15,16 @@ interface AdditionalVariables {
     pullRequestTemplate: string | null
 }
 
-export const analyzePullRequest = async (installationId: number, repo: string, prId: number, prData: any, additionalVariables: AdditionalVariables) => {
+export const analyzePullRequest = async (prData: any, additionalVariables: AdditionalVariables) => {
     let prompt: { system: string, user: string } | null = null;
-    if (process.env.CUSTOM_PROMPT_USER && process.env.CUSTOM_PROMPT_SYSTEM) {
-        prompt = {
-            system: process.env.CUSTOM_PROMPT_SYSTEM,
-            user: process.env.CUSTOM_PROMPT_USER
-        }
+    if (additionalVariables.pullRequestTemplate && additionalVariables.documentVector) {
+        prompt = await getPrompt('pull-request-analysis-with-template-and-document');
+    } else if (additionalVariables.pullRequestTemplate) {
+        prompt = await getPrompt('pull-request-analysis-with-template');
+    } else if (additionalVariables.documentVector) {
+        prompt = await getPrompt('pull-request-analysis-with-document');
     } else {
-        if (additionalVariables.pullRequestTemplate && additionalVariables.documentVector) {
-            prompt = await getPrompt('pull-request-analysis-with-template-and-document');
-        } else if (additionalVariables.pullRequestTemplate) {
-            prompt = await getPrompt('pull-request-analysis-with-template');
-        } else if (additionalVariables.documentVector) {
-            prompt = await getPrompt('pull-request-analysis-with-document');
-        } else {
-            prompt = await getPrompt('pull-request-analysis');
-        }
+        prompt = await getPrompt('pull-request-analysis');
     }
 
     let userPrompt = prompt.user.replace('{{prData}}', JSON.stringify(prData));
@@ -51,6 +44,8 @@ export const analyzePullRequest = async (installationId: number, repo: string, p
 
     if (process.env.AI_PROVIDER === 'anthropic') {
         response = analysis?.content[0]?.text;
+    } else if (process.env.AI_PROVIDER === 'gemini') {
+        response = analysis?.response;
     } else {
         response = analysis?.choices[0]?.message?.content;
     }
@@ -59,12 +54,6 @@ export const analyzePullRequest = async (installationId: number, repo: string, p
         console.log('No response from AI');
         return null;
     }
-
-    await queryWParams(
-        `INSERT INTO llm_logs (installation_id, repo, pr_id, request, response) 
-         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)`,
-        [installationId, repo, prId, JSON.stringify(prompt), JSON.stringify(response)]
-    );
 
     try {
         const contentWithoutSuggestions = response.replace(
@@ -97,7 +86,7 @@ export const analyzePullRequest = async (installationId: number, repo: string, p
     }
 };
 
-export const getPRExplanation = async (installationId: number, repo: string, prId: number, prData: any) => {
+export const getPRExplanation = async (prData: any) => {
     const prompt = await getPrompt("pull-request-explanation")
     let userPrompt = prompt.user.replace('{{prData}}', JSON.stringify(prData));
 
@@ -111,6 +100,8 @@ export const getPRExplanation = async (installationId: number, repo: string, prI
 
     if (process.env.AI_PROVIDER === 'anthropic') {
         response = analysis?.content[0]?.text;
+    } else if (process.env.AI_PROVIDER === 'gemini') {
+        response = analysis?.response;
     } else {
         response = analysis?.choices[0]?.message?.content;
     }
@@ -119,12 +110,6 @@ export const getPRExplanation = async (installationId: number, repo: string, prI
         console.log('No response from AI');
         return null;
     }
-
-    await queryWParams(
-        `INSERT INTO llm_logs (installation_id, repo, pr_id, request, response) 
-         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)`,
-        [installationId, repo, prId, JSON.stringify(prompt), JSON.stringify(response)]
-    );
 
     try {
         const parsedContent = JSON.parse(response);
