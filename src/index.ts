@@ -6,7 +6,7 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import api from './api/index.js'
 import { init } from './db/psql.js'
-import githubApp from './integrations/github.js'
+import { initGithubPolling } from './integrations/github.js'
 const app = new Hono()
 
 app.get('/health', (c) => c.text('OK'))
@@ -17,6 +17,6 @@ serve({
 }, () => {
     console.log('Server is running on http://localhost:8080')
     init()
-    githubApp(app)
+    initGithubPolling()
     api(app)
 })
