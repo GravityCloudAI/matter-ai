@@ -4,7 +4,7 @@
   "repository": "https://github.com/GravityCloudAI/matter",
   "author": "Vatsal <vatsal@gravitycloud.ai>",
   "license": "MIT",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "scripts": {
     "start": "node dist/index.js",
     "build": "tsc",
@@ -17,11 +17,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@google/generative-ai": "^0.24.0",
     "@hono/node-server": "^1.13.7",
-    "@octokit/auth-app": "^7.1.4",
     "@octokit/rest": "^21.0.2",
-    "@octokit/webhooks": "^13.4.2",
-    "@octokit/webhooks-types": "^7.6.1",
     "axios": "^1.7.4",
     "cross-env": "^7.0.3",
     "dotenv": "^16.4.7",

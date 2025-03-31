@@ -1,130 +1,258 @@
-import * as dotenv from 'dotenv'
-dotenv.config()
-import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
-import { Webhooks } from '@octokit/webhooks';
-import { Hono } from 'hono';
-import { query, queryWParams } from "../db/psql.js";
+import * as dotenv from 'dotenv';
 import { analyzePullRequest, analyzePullRequestStatic, getPRExplanation } from "../ai/pullRequestAnalysis.js";
-
-if (!process.env.GITHUB_WEBHOOK_SECRET) {
-  throw new Error('GitHub webhook secret is not set');
-}
-
-const USER_AGENT = "matter-self-hosted-github-agent v0.1"
+import { query, queryWParams } from "../db/psql.js";
+dotenv.config()
 
 export const REPO_COLORS = ['green', 'orange', 'red', 'yellow', 'limegreen', 'info', 'lightblue'];
 
-const githubWebhookHandler = async (c: any) => {
-  try {
-    const body = await c.req.json();
-    const signature = c.req.header('x-hub-signature-256');
-    const matchesSignature = await webhooks.verify(
-      JSON.stringify(body),
-      signature
-    );
+const USER_AGENT = "github-api"
+let pollingInterval: NodeJS.Timeout | null = null;
 
-    if (!matchesSignature) {
-      return c.json({ error: 'Invalid signature' }, 400);
+export const initGithubPolling = async () => {
+
+  if (process.env.GITHUB_ORG_TOKEN && process.env.GITHUB_ORG_NAME) {
+    console.log("Using GitHub Organization Token - setting up polling mechanism");
+
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      pollingInterval = null;
     }
 
-    await webhooks.receive({
-      id: c.req.header('x-github-delivery'),
-      name: c.req.header('x-github-event'),
-      payload: body,
-    });
+    await pollGitHubWithPAT();
 
-    return c.json({ status: 'received' });
-  } catch (error) {
-    console.log('Error handling webhook event:', error);
-    return c.json({ error: 'Webhook handler failed' }, 500);
+    pollingInterval = setInterval(pollGitHubWithPAT, 30000);
+    return;
   }
-};
+}
 
-export default function githubApp(app: Hono) {
-  app.post('/github/webhook', githubWebhookHandler);
-  app.get('/github/oauth/redirect', async (c) => {
-    try {
-      const code = c.req.query('code');
-      if (!code) {
-        return c.json({ error: 'No code provided' }, 400);
+
+const pollGitHubWithPAT = async () => {
+  try {
+    const token = process.env.GITHUB_ORG_TOKEN!!;
+    const owner = process.env.GITHUB_ORG_NAME!!;
+    const installationId = process.env.GITHUB_ORG_NAME!!;
+
+    console.log(`[POLLING] Starting GitHub data sync for org: ${owner}`);
+
+    // 1. Sync repositories
+    const allRepos = await listRepos(token, owner);
+    if (allRepos) {
+      console.log(`[POLLING] Found ${allRepos.length} repositories`);
+
+      // Update timestamp for all repos
+      const reposWithTimestamp = allRepos.map(repo => ({
+        ...repo,
+        last_polled_at: new Date().toISOString()
+      }));
+
+      await queryWParams(
+        `INSERT INTO github_repositories (installation_id, repositories) 
+         VALUES ($1, $2::jsonb)
+         ON CONFLICT (installation_id) 
+         DO UPDATE SET repositories = $2::jsonb`,
+        [installationId, JSON.stringify(reposWithTimestamp)]
+      );
+
+      // 2. For each repo, sync branches and PRs
+      for (const repo of allRepos) {
+        // 2a. Sync branches
+        const branches = await listAllBranches(token, repo.name, owner);
+        if (branches) {
+          await updateRepoBranches(installationId, repo.name, repo.full_name, repo.id, branches);
+        }
+
+        // 2b. Sync PRs
+        const prs = await listPullRequests(token, repo.name, owner);
+        if (prs && prs.length > 0) {
+          console.log(`[POLLING] Found ${prs.length} PRs for ${repo.name}`);
+
+          // Get existing PRs to compare updated_at timestamps
+          const existingPRs = await queryWParams(
+            `SELECT repo, pr_id, pr_data, pr_status, updated_at 
+             FROM github_pull_requests 
+             WHERE installation_id = $1 AND repo = $2`,
+            [installationId, repo.name]
+          );
+
+          const existingPRMap = new Map();
+          if (existingPRs?.rows) {
+            existingPRs.rows.forEach(pr => {
+              existingPRMap.set(pr.pr_id, {
+                updatedAt: new Date(pr.pr_data.updated_at),
+                status: pr.pr_status
+              });
+            });
+          }
+
+          // Process PRs and detect changes
+          for (const pr of prs) {
+            const prUpdatedAt = new Date(pr.updated_at);
+            const existing = existingPRMap.get(pr.number);
+            const prStatus = pr.state === 'closed' ? 'closed' : 'open';
+
+            // Check if PR is new or updated since last poll
+            const isNewOrUpdated = !existing || prUpdatedAt > existing.updatedAt || existing.status !== prStatus;
+
+            await queryWParams(
+              `INSERT INTO github_pull_requests (installation_id, repo, pr_id, pr_data, pr_status) 
+               VALUES ($1, $2, $3, $4::jsonb, $5)
+               ON CONFLICT ON CONSTRAINT github_pull_requests_pkey 
+               DO UPDATE SET pr_data = $4::jsonb, pr_status = $5, updated_at = NOW()`,
+              [installationId, repo.name, pr.number, JSON.stringify(pr), prStatus]
+            );
+
+            // If PR is new or updated, analyze it if it's not a draft
+            if (isNewOrUpdated && !pr.draft) {
+              const prForAnalysis = {
+                title: pr.title,
+                body: pr.body,
+                changed_files: filterPRFiles(pr.changed_files),
+                requested_reviewers: pr.requested_reviewers
+              };
+
+              const pullRequestTemplate = await getPullRequestTemplate(token, repo.name, owner);
+
+              const analysis = await analyzePullRequest(prForAnalysis, {
+                documentVector: null,
+                pullRequestTemplate: pullRequestTemplate
+              });
+
+              if (analysis) {
+                await queryWParams(
+                  `INSERT INTO github_pull_request_analysis (installation_id, repo, pr_id, analysis) 
+                   VALUES ($1, $2, $3, $4::jsonb)
+                   ON CONFLICT ON CONSTRAINT github_pull_request_analysis_pkey 
+                   DO UPDATE SET analysis = $4::jsonb`,
+                  [installationId, repo.name, pr.number, JSON.stringify(analysis)]
+                );
+
+                // Check if we should add reviews/update PR descriptions based on org settings
+                if (process.env.ENABLE_PR_REVIEW_COMMENT || process.env.ENABLE_PR_DESCRIPTION) {
+                  try {
+                    // Only add review if this is a new PR or it was recently updated (within last hour)
+                    const oneHourAgo = new Date();
+                    oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+
+                    if (!existing || (prUpdatedAt > oneHourAgo)) {
+                      if (process.env.ENABLE_PR_REVIEW_COMMENT) {
+                        const reviewComments = analysis?.review?.reviewComments || [];
+                        const codeChangeComments = analysis?.codeChangeGeneration?.reviewComments || [];
+
+                        const mergedComments = [
+                          ...codeChangeComments,
+                          ...reviewComments.filter((review: any) =>
+                            !codeChangeComments.some((change: any) =>
+                              change.path === review.path && change.position === review.position
+                            )
+                          )
+                        ];
+
+                        await addReviewToPullRequest(
+                          token,
+                          owner,
+                          repo.name,
+                          pr.number,
+                          analysis?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
+                          analysis?.codeChangeGeneration?.reviewBody,
+                          mergedComments
+                        );
+                      }
+
+                      if (process.env.ENABLE_PR_DESCRIPTION) {
+                        if (pullRequestTemplate) {
+                          await updatePRDescription(token, owner, repo.name, pr.number, analysis?.checklist?.completedChecklist);
+                        } else {
+                          await updatePRDescription(token, owner, repo.name, pr.number, analysis?.summary?.description);
+                        }
+                      }
+                    }
+                  } catch (error) {
+                    console.log(`[POLLING] Error adding review/description to PR #${pr.number}:`, error);
+                  }
+                }
+              }
+            }
+          }
+        }
       }
 
-      const octokit = new Octokit();
-      const response = await octokit.request('POST /login/oauth/access_token', {
-        client_id: process.env.GITHUB_CLIENT_ID,
-        client_secret: process.env.GITHUB_CLIENT_SECRET,
-        code: code,
-        headers: {
-          'Accept': 'application/json'
-        }
+      // 3. Sync organization members/users
+      const octokit = new Octokit({
+        auth: token,
+        userAgent: USER_AGENT
       });
 
-      return c.json(response.data);
-    } catch (error) {
-      console.log('Error handling OAuth redirect:', error);
-      return c.json({ error: 'OAuth handler failed' }, 500);
-    }
-  });
-}
+      const users = await octokit.paginate(octokit.orgs.listMembers, {
+        org: owner,
+        per_page: 100
+      });
 
-const webhooks = new Webhooks({
-  secret: process.env.GITHUB_WEBHOOK_SECRET,
-});
+      const userEmails = new Map<string, string | null>(users.map(user => [user.login, null]));
+      const userNames = new Map<string, string | null>(users.map(user => [user.login, null]));
 
-webhooks.onAny(async (event: any) => {
-  console.log("Event received", event?.name, event?.payload?.action)
-  if (event.name === "installation" && event.payload?.action === "created") {
-    await queryWParams(`INSERT INTO github_data (installation_id, payload) VALUES ($1, $2::jsonb)`, [event.payload?.installation?.id, event.payload])
-  } else if (event.name === "installation" && event.payload?.action === "deleted") {
-    try {
-      await query(`DELETE FROM github_data`);
-      await query(`DELETE FROM github_repositories`);
-      await query(`DELETE FROM github_branches`);
-      await query(`DELETE FROM github_pull_requests`);
-      return
-    } catch (error) {
-      console.log("Error deleting installation data:", error)
+      // Only fetch commit data if we need user details
+      if (allRepos) {
+        // Process repos in batches of 3 to avoid rate limits
+        for (let i = 0; i < allRepos.length; i += 3) {
+          const batch = allRepos.slice(i, i + 3);
+
+          await Promise.all(batch.map(async (repo) => {
+            try {
+              // Only fetch commits if we still need user info
+              if ([...userEmails.values()].some(email => email === null) ||
+                [...userNames.values()].some(name => name === null)) {
+                const commits = await octokit.paginate(octokit.repos.listCommits, {
+                  owner,
+                  repo: repo.name,
+                  per_page: 100
+                });
+
+                for (const commit of commits) {
+                  const authorLogin = commit.author?.login;
+                  if (authorLogin && userEmails.has(authorLogin)) {
+                    if (!userEmails.get(authorLogin)) {
+                      userEmails.set(authorLogin, commit.commit?.author?.email || null);
+                    }
+                    if (!userNames.get(authorLogin)) {
+                      userNames.set(authorLogin, commit.commit?.author?.name || null);
+                    }
+                  }
+                }
+              }
+            } catch (error) {
+              console.log(`[POLLING] Error processing repo ${repo.name} for user details:`, error);
+            }
+          }));
+
+          // Add a delay between batches to avoid rate limiting
+          if (i + 3 < allRepos.length) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        }
+      }
+
+      const usersWithDetails = users.map(user => ({
+        ...user,
+        email: userEmails.get(user.login) || null,
+        name: userNames.get(user.login) || null,
+        last_polled_at: new Date().toISOString()
+      }));
+
+      await queryWParams(
+        `INSERT INTO github_users (installation_id, users) 
+         VALUES ($1, $2::jsonb)
+         ON CONFLICT (installation_id) 
+         DO UPDATE SET users = $2::jsonb`,
+        [installationId, JSON.stringify(usersWithDetails)]
+      );
+
+      console.log(`[POLLING] GitHub data sync completed for org: ${owner}`);
     }
+  } catch (error) {
+    console.log("[POLLING] Error in GitHub polling:", error);
   }
-  const githubData = await query(`SELECT * FROM github_data ORDER BY created_at DESC LIMIT 1`)
-  await syncUpdatedEventAndStoreInDb(event, githubData?.rows[0]?.payload)
-});
-
-
-export const getGithubInstallationToken = async (installationId: number) => {
-  try {
-    if (!process.env.GITHUB_PRIVATE_KEY || !process.env.GITHUB_APP_ID) {
-      throw new Error('GitHub private key or app ID is not set in environment variables');
-    }
-
-    const appId = process.env.GITHUB_APP_ID;
-    const privateKey = Buffer.from(
-      process.env.GITHUB_PRIVATE_KEY,
-      'base64'
-    ).toString('utf8').trim();
-
-    const auth = createAppAuth({
-      appId: appId,
-      privateKey: privateKey,
-      installationId: installationId,
-    });
-
-    const installationAuthentication = await auth({ type: "installation" });
-    return installationAuthentication.token;
-  } catch (error: any) {
-    if (error.status === 403) {
-      console.log("Authentication failed - rate limit or permissions issue:", error.message);
-      throw new Error("GitHub authentication failed - rate limit or permissions issue");
-    }
-    if (error.status === 401) {
-      console.log("Invalid authentication credentials");
-      throw new Error("Invalid GitHub authentication credentials");
-    }
-    console.log("Error getting installation token:", error);
-    throw error;
-  }
-}
+};
 
 const listRepos = async (token: string, owner: string, repoName?: string) => {
   try {
@@ -260,7 +388,7 @@ const listAllBranches = async (token: string, repo: string, owner: string) => {
   }
 }
 
-const updateRepoBranches = async (installationId: number, repoName: string, fullName: string, repoId: number, branches: string[]) => {
+const updateRepoBranches = async (installationId: string, repoName: string, fullName: string, repoId: number, branches: string[]) => {
   const existingData = await queryWParams(`SELECT * FROM github_branches WHERE installation_id = $1`, [installationId])
   let repoBranches = existingData?.rows[0]?.branches || []
 
@@ -290,7 +418,7 @@ const updateRepoBranches = async (installationId: number, repoName: string, full
   )
 }
 
-const removeRepoBranches = async (installationId: number, repoName: string) => {
+const removeRepoBranches = async (installationId: string, repoName: string) => {
   const existingData = await queryWParams(`SELECT * FROM github_branches WHERE installation_id = $1`, [installationId])
   let repoBranches = existingData?.rows[0]?.branches || []
 
@@ -581,7 +709,6 @@ const handleReviewRequest = async (
   owner: string,
   repo: string,
   prNumber: number,
-  installationId: number,
 ) => {
   try {
     // Add a comment acknowledging the request
@@ -618,7 +745,7 @@ const handleReviewRequest = async (
     const pullRequestTemplate = await getPullRequestTemplate(githubToken, repo, owner);
 
     // Perform the analysis
-    const analysis = await analyzePullRequest(installationId, repo, prNumber, prForAnalysis, {
+    const analysis = await analyzePullRequest(prForAnalysis, {
       documentVector: null,
       pullRequestTemplate: pullRequestTemplate
     })
@@ -680,7 +807,6 @@ const handleSummaryRequest = async (
   owner: string,
   repo: string,
   prNumber: number,
-  installationId: number,
 ) => {
   try {
     await addCommentToPullRequest(
@@ -715,7 +841,7 @@ const handleSummaryRequest = async (
     const pullRequestTemplate = await getPullRequestTemplate(githubToken, repo, owner);
 
     // Perform the analysis
-    const analysis = await analyzePullRequest(installationId, repo, prNumber, prForAnalysis, {
+    const analysis = await analyzePullRequest(prForAnalysis, {
       documentVector: null,
       pullRequestTemplate: pullRequestTemplate
     })
@@ -772,7 +898,6 @@ export const handleExplainRequest = async (
   owner: string,
   repo: string,
   prNumber: number,
-  installationId: number,
 ) => {
   try {
     await addCommentToPullRequest(
@@ -802,7 +927,7 @@ export const handleExplainRequest = async (
       changed_files: filterPRFiles(prDetails[0].changed_files),
       requested_reviewers: prDetails[0].requested_reviewers
     };
-    const explanationRes: any = await getPRExplanation(installationId, repo, prNumber, prForAnalysis);
+    const explanationRes: any = await getPRExplanation(prForAnalysis);
 
     const explanationObj: any = JSON.parse(explanationRes);
     await addCommentToPullRequest(
@@ -814,331 +939,6 @@ export const handleExplainRequest = async (
     );
   } catch (error) {
     console.log(`Error handling explain request for PR #${prNumber}:`, error);
-  }
-}
-
-const syncUpdatedEventAndStoreInDb = async (event: any, githubPayload: any) => {
-
-  const installationId: number = githubPayload?.installation?.id
-  const githubToken = await getGithubInstallationToken(installationId)
-  const owner = githubPayload?.installation?.account?.login
-  const eventType = event?.name
-  const eventPayload = event?.payload
-
-  if (eventType?.startsWith('repository')) {
-    const repoAction = eventPayload?.action
-    const repo = eventPayload?.repository
-
-    console.log("[REPOSITORY] Syncing repository:", repo.name)
-
-    const existingData = await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId])
-    let allRepos = existingData?.rows[0]?.repositories || []
-
-    if (repoAction === 'created' || repoAction === 'edited' || repoAction === 'publicized' || repoAction === 'privatized') {
-      const updatedRepo = await listRepos(githubToken, owner, repo.name)
-      if (updatedRepo && updatedRepo[0]) {
-        const repoIndex = allRepos.findIndex((r: any) => r.name === repo.name)
-        if (repoIndex === -1) {
-          const existingColors = new Set(allRepos.map((r: any) => r.color));
-          const availableColors = REPO_COLORS.filter(c => !existingColors.has(c));
-          const nextColor = availableColors.length > 0 ?
-            availableColors[0] :
-            REPO_COLORS[allRepos.length % REPO_COLORS.length];
-
-          allRepos.push({
-            ...updatedRepo[0],
-            color: nextColor
-          });
-        } else {
-          allRepos[repoIndex] = {
-            ...updatedRepo[0],
-            color: allRepos[repoIndex].color || REPO_COLORS[repoIndex % REPO_COLORS.length]
-          };
-        }
-
-        const branches = await listAllBranches(githubToken, repo.name, owner)
-        if (branches) {
-          await updateRepoBranches(installationId, repo.name, repo.full_name, repo.id, branches)
-        }
-      }
-    } else if (repoAction === 'deleted') {
-      allRepos = allRepos.filter((r: any) => r.name !== repo.name)
-      await removeRepoBranches(installationId, repo.name)
-    }
-
-    await queryWParams(
-      `INSERT INTO github_repositories (installation_id, repositories) 
-       VALUES ($1, $2::jsonb)
-       ON CONFLICT (installation_id) 
-       DO UPDATE SET repositories = $2::jsonb`,
-      [installationId, JSON.stringify(allRepos)]
-    )
-  } else if (eventType === 'installation') {
-    // For new installations, fetch all repos and their branches
-    const allRepos: any = await listRepos(githubToken, owner)
-    console.log("[INSTALLATION] Syncing repositories:", allRepos.length)
-
-    await queryWParams(
-      `INSERT INTO github_repositories (installation_id, repositories) 
-       VALUES ($1, $2::jsonb)
-       ON CONFLICT (installation_id) 
-       DO UPDATE SET repositories = $2::jsonb`,
-      [installationId, JSON.stringify(allRepos)]
-    )
-
-    for (const repo of allRepos) {
-      const branches = await listAllBranches(githubToken, repo.name, owner)
-      if (branches) {
-        await updateRepoBranches(installationId, repo.name, repo.full_name, repo.id, branches)
-      }
-    }
-  }
-
-  if (eventType?.startsWith('pull_request')) {
-    const prAction = eventPayload?.action
-    const repo = eventPayload?.repository?.name
-    const prNumber = eventPayload?.pull_request?.number
-
-    console.log("[PULL_REQUEST] Syncing pull request:", prNumber, "Action:", prAction)
-
-    if (prAction === 'opened' || prAction === 'synchronize' || prAction === 'edited' || prAction === 'reopened' || prAction === 'closed') {
-      const updatedPR = await listPullRequests(githubToken, repo, owner, prNumber)
-      if (updatedPR && updatedPR[0]) {
-        await queryWParams(
-          `INSERT INTO github_pull_requests (installation_id, repo, pr_id, pr_data, pr_status) 
-           VALUES ($1, $2, $3, $4::jsonb, $5)
-           ON CONFLICT ON CONSTRAINT github_pull_requests_pkey 
-           DO UPDATE SET pr_data = $4::jsonb, pr_status = $5, updated_at = NOW()`,
-          [installationId, repo, prNumber, JSON.stringify(updatedPR[0]), prAction === 'closed' ? 'closed' : 'open']
-        )
-
-        // check if the pr is draft and if it is, skip the review
-        if (updatedPR[0].draft) {
-          console.log("[PULL_REQUEST] Pull request is a draft, skipping review")
-          return
-        }
-
-        if (prAction === 'opened' || prAction === 'edited' || prAction === 'synchronize') {
-          const prForAnalysis = {
-            title: updatedPR[0].title,
-            body: updatedPR[0].body,
-            changed_files: filterPRFiles(updatedPR[0].changed_files),
-            requested_reviewers: updatedPR[0].requested_reviewers
-          };
-
-          // check the ./github/pull_request_template.md from the repo branch
-          const pullRequestTemplate = await getPullRequestTemplate(githubToken, repo, owner)
-
-          const analysis = await analyzePullRequest(installationId, repo, prNumber, prForAnalysis, {
-            documentVector: null,
-            pullRequestTemplate: pullRequestTemplate
-          })
-          if (analysis) {
-            await queryWParams(
-              `INSERT INTO github_pull_request_analysis (installation_id, repo, pr_id, analysis) 
-               VALUES ($1, $2, $3, $4::jsonb)
-               ON CONFLICT ON CONSTRAINT github_pull_request_analysis_pkey 
-               DO UPDATE SET analysis = $4::jsonb`,
-              [installationId, repo, prNumber, JSON.stringify(analysis)]
-            )
-          }
-
-          if (process.env.ENABLE_PR_REVIEW_COMMENT === "true") {
-            try {
-              const reviewComments = analysis?.review?.reviewComments || [];
-              const codeChangeComments = analysis?.codeChangeGeneration?.reviewComments || [];
-
-              // Keep codeChangeComments and only add reviewComments that don't have conflicting positions
-              const mergedComments = [
-                ...codeChangeComments,
-                ...reviewComments.filter((review: any) =>
-                  !codeChangeComments.some((change: any) =>
-                    change.path === review.path && change.position === review.position
-                  )
-                )
-              ];
-
-              await addReviewToPullRequest(
-                githubToken,
-                owner,
-                repo,
-                prNumber,
-                analysis?.codeChangeGeneration?.event as "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
-                analysis?.codeChangeGeneration?.reviewBody,
-                mergedComments)
-
-              if (pullRequestTemplate) {
-                await updatePRDescription(githubToken, owner, repo, prNumber, analysis?.checklist?.completedChecklist)
-              } else {
-                await updatePRDescription(githubToken, owner, repo, prNumber, analysis?.summary?.description)
-              }
-            } catch (error) {
-              console.log("Error adding review to pull request:", error)
-            }
-          }
-        } else if (prAction === 'deleted') {
-          // For deleted PRs, we can either remove them or mark them as deleted
-          await queryWParams(
-            `UPDATE github_pull_requests 
-             SET pr_status = 'deleted', updated_at = NOW()
-             WHERE installation_id = $1 AND repo = $2 AND pr_id = $3`,
-            [installationId, repo, prNumber]
-          )
-        }
-      }
-    } else if (eventType === 'installation') {
-      // wait for 10s
-      await new Promise(resolve => setTimeout(resolve, 10000));
-      // For new installations, fetch all PRs
-      const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1::integer limit 1`, [installationId]))?.rows[0]?.repositories
-      if (allRepos) {
-        // Process repos in batches to avoid overwhelming the database
-        for (const repo of allRepos) {
-          const prs = await listPullRequests(githubToken, repo.name, owner)
-          console.log("[INSTALLATION] Found", prs?.length, "PRs for", repo.name)
-
-          if (prs && prs.length > 0) {
-            // Insert PRs in batches
-            for (const pr of prs) {
-              await queryWParams(
-                `INSERT INTO github_pull_requests (installation_id, repo, pr_id, pr_data) 
-                 VALUES ($1, $2, $3, $4::jsonb)
-                 ON CONFLICT ON CONSTRAINT github_pull_requests_pkey 
-                 DO UPDATE SET pr_data = $4::jsonb, updated_at = NOW()`,
-                [installationId, repo.name, pr.number, JSON.stringify(pr)]
-              )
-            }
-            console.log("[INSTALLATION] Synced", prs.length, "PRs for", repo.name)
-          }
-        }
-      }
-    } else if (!eventType || eventType === 'installation' || eventType === 'member' || eventType === 'organization') {
-      const octokit = new Octokit({
-        auth: githubToken,
-        userAgent: "matter-self-hosted-github-agent v0.1"
-      });
-
-      const users = await octokit.paginate(octokit.orgs.listMembers, {
-        org: owner,
-        per_page: 100
-      });
-
-      if (!eventType || eventType === 'installation' || eventType === 'member') {
-        const userEmails = new Map<string, string | null>(users.map(user => [user.login, null]));
-        const userNames = new Map<string, string | null>(users.map(user => [user.login, null]));
-
-        // Only fetch commit data if we need user details
-        const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1`, [installationId]))?.rows[0]?.repositories
-        if (allRepos) {
-          // Process repos in parallel with a limit
-          const processRepo = async (repo: any) => {
-            try {
-              // Only fetch commits if we still need user info
-              if ([...userEmails.values()].some(email => email === null) ||
-                [...userNames.values()].some(name => name === null)) {
-                const commits = await octokit.paginate(octokit.repos.listCommits, {
-                  owner,
-                  repo: repo.name,
-                  per_page: 100
-                });
-
-                for (const commit of commits) {
-                  const authorLogin = commit.author?.login;
-                  if (authorLogin && userEmails.has(authorLogin)) {
-                    if (!userEmails.get(authorLogin)) {
-                      userEmails.set(authorLogin, commit.commit?.author?.email || null);
-                    }
-                    if (!userNames.get(authorLogin)) {
-                      userNames.set(authorLogin, commit.commit?.author?.name || null);
-                    }
-                  }
-                }
-              }
-            } catch (error) {
-              console.log(`Error processing repo ${repo.name}:`, error);
-            }
-          };
-
-          // Process repos in batches of 3
-          for (let i = 0; i < allRepos.length; i += 3) {
-            const batch = allRepos.slice(i, i + 3);
-            await Promise.all(batch.map(processRepo));
-          }
-        }
-
-        const usersWithDetails = users.map(user => ({
-          ...user,
-          email: userEmails.get(user.login) || null,
-          name: userNames.get(user.login) || null
-        }));
-
-        await queryWParams(
-          `INSERT INTO github_users (installation_id, users) 
-           VALUES ($1, $2::jsonb)
-           ON CONFLICT (installation_id) 
-           DO UPDATE SET users = $2::jsonb`,
-          [installationId, JSON.stringify(usersWithDetails || users)]
-        )
-      } else {
-        await queryWParams(
-          `INSERT INTO github_users (installation_id, users) 
-           VALUES ($1, $2::jsonb)
-           ON CONFLICT (installation_id) 
-           DO UPDATE SET users = $2`,
-          [installationId, JSON.stringify(users)]
-        )
-      }
-    }
-  }
-
-  if (eventType === 'issue_comment') {
-    const action = eventPayload.action
-    const issue = eventPayload.issue
-    const comment = eventPayload.comment
-    const repo = eventPayload.repository.name
-
-    if (action === 'created') {
-      // Check if this is a PR comment
-      if (issue.pull_request) {
-        // Check for app mentions in the comment
-        const isMentioned = comment.body.includes('/ai');
-        const hasReviewCommand = comment.body.includes('review');
-        const hasSummaryCommand = comment.body.includes('summary');
-        const hasExplainCommand = comment.body.includes('explain');
-
-        if (isMentioned) {
-          if (hasReviewCommand) {
-            // Call the dedicated function to handle the review request
-            await handleReviewRequest(
-              githubToken,
-              owner,
-              repo,
-              issue.number,
-              installationId
-            );
-          } else if (hasSummaryCommand) {
-            // Call the dedicated function to handle the summary request
-            await handleSummaryRequest(
-              githubToken,
-              owner,
-              repo,
-              issue.number,
-              installationId
-            );
-          } else if (hasExplainCommand) {
-            // Pass the comment ID to the handler
-            await handleExplainRequest(
-              githubToken,
-              owner,
-              repo,
-              issue.number,
-              installationId
-            );
-          }
-        }
-
-      }
-    }
   }
 }
 
@@ -1375,39 +1175,6 @@ export const addReviewToPullRequest = async (
     throw error;
   }
 };
-
-export const forceReSync = async (resource: 'repositories' | 'pullRequests' | 'users' | 'branches') => {
-  const installation = await query(`SELECT * FROM github_data ORDER BY created_at DESC LIMIT 1`)
-  const installationId = installation?.rows[0]?.installation_id
-  const owner = installation?.rows[0]?.payload?.installation?.account?.login
-
-  const githubToken = await getGithubInstallationToken(installationId)
-
-  if (resource === 'pullRequests') {
-
-    await query(`DELETE FROM github_pull_requests`)
-
-    const allRepos = (await queryWParams(`SELECT * FROM github_repositories WHERE installation_id = $1::integer limit 1`, [installationId]))?.rows[0]?.repositories
-    if (allRepos) {
-      for (const repo of allRepos) {
-        const prs = await listPullRequests(githubToken, repo.name, owner)
-        if (prs && prs.length > 0) {
-          console.log(`[FORCE_RESYNC] Syncing ${prs.length} PRs for ${repo.name}`)
-
-          for (const pr of prs) {
-            await queryWParams(
-              `INSERT INTO github_pull_requests (installation_id, repo, pr_id, pr_data) 
-               VALUES ($1, $2, $3, $4::jsonb)
-               ON CONFLICT ON CONSTRAINT github_pull_requests_pkey 
-               DO UPDATE SET pr_data = $4::jsonb, updated_at = NOW()`,
-              [installationId, repo.name, pr.number, JSON.stringify(pr)]
-            )
-          }
-        }
-      }
-    }
-  }
-}
 
 const updatePRDescription = async (githubToken: string, owner: string, repo: string, prId: number, description: string) => {
   try {
