@@ -1,13 +1,14 @@
-import { queryWParams } from "../db/psql.js";
 import { AIGateway } from "./gateway.js";
 import { getPrompt } from "./prompts.js";
 import * as dotenv from 'dotenv'
+import JSONbig from 'json-bigint';
+const JSONbigString = JSONbig({ storeAsString: true });
 dotenv.config()
 
 const aiGateway = new AIGateway({
     apiKey: process.env.AI_API_KEY!!,
     model: process.env.AI_MODEL!!,
-    provider: process.env.AI_PROVIDER as 'openai' | 'anthropic' | 'gemini',
+    provider: process.env.AI_PROVIDER as 'openai' | 'anthropic' | 'google',
 });
 
 interface AdditionalVariables {
@@ -27,24 +28,22 @@ export const analyzePullRequest = async (prData: any, additionalVariables: Addit
         prompt = await getPrompt('pull-request-analysis');
     }
 
+    console.log("[POLLING] Found prompt:", prompt);
+
     let userPrompt = prompt.user.replace('{{prData}}', JSON.stringify(prData));
-    if (additionalVariables.documentVector) {
-        userPrompt = userPrompt.replace('{{documentVector}}', JSON.stringify(additionalVariables.documentVector));
-    }
-    if (additionalVariables.pullRequestTemplate) {
-        userPrompt = userPrompt.replace('{{pullRequestTemplate}}', additionalVariables.pullRequestTemplate);
-    }
 
     const analysis = await aiGateway.createCompletion({
         systemPrompt: prompt.system,
         userPrompt: userPrompt
     });
 
+    console.log("analysis", analysis?.choices[0]?.message?.content);
+
     let response = null;
 
     if (process.env.AI_PROVIDER === 'anthropic') {
         response = analysis?.content[0]?.text;
-    } else if (process.env.AI_PROVIDER === 'gemini') {
+    } else if (process.env.AI_PROVIDER === 'google') {
         response = analysis?.response;
     } else {
         response = analysis?.choices[0]?.message?.content;
@@ -56,28 +55,7 @@ export const analyzePullRequest = async (prData: any, additionalVariables: Addit
     }
 
     try {
-        const contentWithoutSuggestions = response.replace(
-            /"body": "```suggestion[\s\S]*?```"/g,
-            () => `"body": "CODE_BLOCK_REMOVED"`
-        );
-
-        const parsedContent = JSON.parse(contentWithoutSuggestions);
-
-        // Put the original code blocks back
-        const codeBlocks = [...response.matchAll(/"body": ("```suggestion[\s\S]*?```")/g)];
-        let codeBlockIndex = 0;
-
-        if (parsedContent?.codeChangeGeneration?.reviewComments) {
-            parsedContent.codeChangeGeneration.reviewComments.forEach((comment: any) => {
-                if (comment.body === "CODE_BLOCK_REMOVED" && codeBlockIndex < codeBlocks.length) {
-                    const cleanedCodeBlock = codeBlocks[codeBlockIndex][1].replace(/\n/g, "\\n")  // Escape newlines
-                        .replace(/\t/g, "\\t")  // Escape tabs
-                        .replace(/\r/g, "\\r")
-                    comment.body = JSON.parse(cleanedCodeBlock)
-                    codeBlockIndex++;
-                }
-            });
-        }
+        const parsedContent = JSONbigString.parse(response);
 
         return parsedContent;
     } catch (error) {
@@ -100,7 +78,7 @@ export const getPRExplanation = async (prData: any) => {
 
     if (process.env.AI_PROVIDER === 'anthropic') {
         response = analysis?.content[0]?.text;
-    } else if (process.env.AI_PROVIDER === 'gemini') {
+    } else if (process.env.AI_PROVIDER === 'google') {
         response = analysis?.response;
     } else {
         response = analysis?.choices[0]?.message?.content;

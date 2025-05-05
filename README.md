@@ -1,7 +1,7 @@
 <div align="center">
-  <a href="https://matterai.dev">
+  <a href="https://matterai.so">
     <img
-      src="https://matterai.dev/favicon.png"
+      src="https://matterai.so/favicon.png"
       alt="Matter AI Logo"
       height="64"
     />
@@ -26,7 +26,7 @@
 [![GitHub License](https://img.shields.io/github/license/GravityCloudAI/matter-ai)](https://github.com/GravityCloudAI/matter/blob/matter-ai/LICENSE)
 ![Security Compliance](https://img.shields.io/badge/Compliance-SOC2_Type_II-818aff)
 ![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen?logo=github) 
-[![Tweet](https://img.shields.io/twitter/url?url=https%3A%2F%2Fmatterai.dev%2F)](https://twitter.com/intent/tweet?url=&text=Check%20out%20%40matteraidev)
+[![Tweet](https://img.shields.io/twitter/url?url=https%3A%2F%2Fmatterai.so%2F)](https://twitter.com/intent/tweet?url=&text=Check%20out%20%40matteraidev)
 
 ![Matter Og Image](https://res.cloudinary.com/dor5uewzz/image/upload/v1742408026/og-image-matter_qisnai.png)
 
@@ -96,11 +96,11 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 
 #### Steps
 1. Download the docker-compose.yaml file from here: [https://github.com/GravityCloudAI/matter/blob/main/docker-compose.yaml](https://github.com/GravityCloudAI/matter/blob/main/docker-compose.yaml)
-2. Update the ENV for the backend service in the docker-compose.yaml file. You can get your Gravity API key here: https://app.matterai.dev/settings
+2. Update the ENV for the backend service in the docker-compose.yaml file. You can get your Gravity API key here: https://app.matterai.so/settings
 3. Run `docker compose up -d`
 4. The app will start syncing with your Github Repositories and store the data.
 5. Create a new PR or update a PR to see the AI analysis.
-6. You can connect your hosted backend URL also in https://app.matterai.dev/home?tab=Settings to view the PRs in the UI. 
+6. You can connect your hosted backend URL also in https://app.matterai.so/home?tab=Settings to view the PRs in the UI. 
 
 ### 3. Local Installation
 

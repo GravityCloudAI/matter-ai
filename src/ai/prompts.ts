@@ -16,7 +16,7 @@ const GRAVITY_API_KEY = process.env.GRAVITY_API_KEY;
  */
 export async function getPrompt(promptId: string): Promise<Prompt> {
     try {
-        const response = await fetch(`https://api.matterai.dev/api/v1/ai/prompts/${promptId}`, {
+        const response = await fetch(`https://api.matterai.so/api/v1/ai/prompts/${promptId}`, {
             headers: {
                 'Authorization': `Bearer ${GRAVITY_API_KEY}`
             }

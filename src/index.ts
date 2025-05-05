@@ -4,8 +4,6 @@ dotenv.config()
 
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
-import api from './api/index.js'
-import { init } from './db/psql.js'
 import { initGithubPolling } from './integrations/github.js'
 const app = new Hono()
 
@@ -16,7 +14,5 @@ serve({
     fetch: app.fetch,
 }, () => {
     console.log('Server is running on http://localhost:8080')
-    init()
     initGithubPolling()
-    api(app)
 })
