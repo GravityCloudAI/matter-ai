@@ -6,13 +6,9 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - POSTGRES_HOST=localhost
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
       - GITHUB_ORG_TOKEN=<github-org-token>
       - GITHUB_ORG_NAME=<github-org-name>
+      - GITHUB_REPOS=<comma-separated-list>
       - AI_API_KEY=<open-ai-api-key>
       - AI_MODEL=<open-ai-model>
       - AI_PROVIDER=openai
@@ -35,32 +31,6 @@ services:
           cpus: '0.25'
           memory: 256M
 
-  postgres:
-    image: postgres:latest
-    container_name: postgres-matter
-    restart: always
-    ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    networks:
-      - matter-network
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-
 networks:
   matter-network:
     driver: bridge
-
-volumes:
-  postgres-data:
