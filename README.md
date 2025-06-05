@@ -23,7 +23,7 @@
 
 ![GitHub Workflow Status (with event)](https://github.com/GravityCloudAI/matter-ai/actions/workflows/main.yml/badge.svg?branch=main)
 ![Docker Pulls](https://img.shields.io/docker/pulls/gravitycloud/matter.svg?maxAge=604800)
-[![GitHub License](https://img.shields.io/github/license/GravityCloudAI/matter-ai)](https://github.com/GravityCloudAI/matter/blob/matter-ai/LICENSE)
+[![GitHub License](https://img.shields.io/github/license/GravityCloudAI/matter-ai)](https://github.com/GravityCloudAI/matter-ai/blob/matter-ai/LICENSE)
 ![Security Compliance](https://img.shields.io/badge/Compliance-SOC2_Type_II-818aff)
 ![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen?logo=github) 
 [![Tweet](https://img.shields.io/twitter/url?url=https%3A%2F%2Fmatterai.so%2F)](https://twitter.com/intent/tweet?url=&text=Check%20out%20%40matteraidev)
@@ -95,7 +95,7 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 1. Generate a Github Personal Access Token(Classic) here: https://github.com/settings/tokens/new
 
 #### Steps
-1. Download the docker-compose.yaml file from here: [https://github.com/GravityCloudAI/matter/blob/main/docker-compose.yaml](https://github.com/GravityCloudAI/matter/blob/main/docker-compose.yaml)
+1. Download the docker-compose.yaml file from here: [https://github.com/GravityCloudAI/matter-ai/blob/main/docker-compose.yaml](https://github.com/GravityCloudAI/matter-ai/blob/main/docker-compose.yaml)
 2. Update the ENV for the backend service in the docker-compose.yaml file. You can get your Gravity API key here: https://app.matterai.so/settings
 3. Run `docker compose up -d`
 4. The app will start syncing with your Github Repositories and store the data.
@@ -106,7 +106,7 @@ Matter is open-source AI Code Reviewer Agent. This enables developers to review 
 
 #### Prerequisites
 1. Node.js
-2. Update .env file with the required values. You can get the template here: [https://github.com/GravityCloudAI/matter/blob/main/.env.example](https://github.com/GravityCloudAI/matter/blob/main/.env.example)
+2. Update .env file with the required values. You can get the template here: [https://github.com/GravityCloudAI/matter-ai/blob/main/.env.example](https://github.com/GravityCloudAI/matter-ai/blob/main/.env.example)
 
 #### Installation
 1. `npm install`
