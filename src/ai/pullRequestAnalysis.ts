@@ -1,3 +1,4 @@
+import { repairAndParseJSON } from "../helpers/jsonHelper.js";
 import { AIGateway } from "./gateway.js";
 import { getPrompt } from "./prompts.js";
 import * as dotenv from 'dotenv'
@@ -55,7 +56,7 @@ export const analyzePullRequest = async (prData: any, additionalVariables: Addit
     }
 
     try {
-        const parsedContent = JSONbigString.parse(response);
+        const parsedContent = repairAndParseJSON(response);
 
         return parsedContent;
     } catch (error) {
